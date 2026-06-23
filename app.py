@@ -1,5 +1,6 @@
 import os
-import sqlite3
+import psycopg2
+import psycopg2.extras
 from datetime import datetime, timedelta, time
 from functools import wraps
 from zoneinfo import ZoneInfo
