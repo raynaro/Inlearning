@@ -1,7 +1,5 @@
 import os
 import sqlite3
-from zoneinfo import ZoneInfo
-os.makedirs(UPLOADS, exist_ok=True)
 from datetime import datetime, timedelta, time
 from functools import wraps
 from zoneinfo import ZoneInfo
@@ -15,15 +13,15 @@ from openpyxl.styles import Font, PatternFill, Alignment
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
 DB_PATH = os.path.join(APP_DIR, "database.db")
-
 UPLOADS = os.path.join(APP_DIR, "uploads")
 BASE_XLSX = os.path.join(APP_DIR, "base.xlsx")
+
 TZ = ZoneInfo("America/Lima")
 
 os.makedirs(UPLOADS, exist_ok=True)
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'cambia-esta-clave-en-produccion')
+app.secret_key = os.environ.get("SECRET_KEY", "cambia-esta-clave-en-produccion")
 
 ROLES = {
     'admin': 'Administrador',
