@@ -1,6 +1,5 @@
-import os
-import psycopg2
-import psycopg2.extras
+import sqlite3
+DB_NAME = "database.db"
 from datetime import datetime, timedelta, time
 from functools import wraps
 from zoneinfo import ZoneInfo
@@ -32,7 +31,8 @@ AREAS = ('SAE', 'VENTAS')
 
 
 def conn():
-    c = psycopg2.connect(DATABASE_URL)
+    c = sqlite3.connect(DB_NAME)
+    c.row_factory = sqlite3.Row
     return c
 
 
