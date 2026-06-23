@@ -1,3 +1,4 @@
+import os
 import sqlite3
 DB_NAME = "database.db"
 from datetime import datetime, timedelta, time
