@@ -33,10 +33,9 @@ AREAS = ('SAE', 'VENTAS')
 
 
 def conn():
-    c = sqlite3.connect(DB_NAME)
-    c.row_factory = sqlite3.Row
-    return c
-
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
+    return con
 
 def now_dt():
     return datetime.now(TZ)
