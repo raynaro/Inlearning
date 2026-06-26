@@ -815,6 +815,7 @@ def export_visits_excel():
     return send_file(build_report('visitas', area=area), as_attachment=True)
 
 
-if __name__ == '__main__':
-    init_db()
+init_db()
+
+if __name__ == "__main__":
     app.run(debug=True)
