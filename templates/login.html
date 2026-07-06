@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="login-portada login-premium-v2">
+  <div class="login-shell login-shell-v2">
+    <aside class="login-side login-side-v2" aria-label="Portada institucional">
+      <div class="side-overlay side-overlay-v2"></div>
+      <div class="side-content side-content-v2">
+        <span class="login-badge">Sistema institucional</span>
+        <h1>Sistema de Control<br>de ingreso<br>seguro</h1>
+        <p>Panel optimizado para Seguridad, visitas y atención por áreas.</p>
+
+        <div class="mini-metrics" aria-hidden="true">
+          <div><b>24/7</b><span>Acceso web</span></div>
+          <div><b>+QR</b><span>Búsqueda rápida</span></div>
+          <div><b>Excel</b><span>Reportes</span></div>
+        </div>
+      </div>
+    </aside>
+
+    <div class="login-panel login-panel-v2">
+      <div class="login-card-v2">
+        <div class="logo-frame-v2">
+          <img class="login-main-logo login-main-logo-v2" src="{{url_for('static', filename='img/inlearning_logo.jpeg')}}" alt="InLearning">
+        </div>
+        <p class="tagline tagline-v2">ESCUELAS DE EDUCACIÓN SUPERIOR</p>
+
+        <h2>Bienvenido</h2>
+        <p class="login-subtitle login-subtitle-v2">Ingresa tus credenciales para continuar</p>
+
+        <form method="post" class="login-form-new login-form-v2" autocomplete="on">
+          <label class="input-wrap input-wrap-v2">
+            <span class="field-icon" aria-hidden="true">@</span>
+            <input name="email" type="email" placeholder="Usuario o correo" required autocomplete="username">
+          </label>
+
+          <label class="input-wrap input-wrap-v2">
+            <span class="field-icon" aria-hidden="true">●</span>
+            <input id="passwordInput" name="password" type="password" placeholder="Contraseña" required autocomplete="current-password">
+            <button type="button" class="eye-btn eye-btn-v2" onclick="togglePassword()" aria-label="Mostrar u ocultar contraseña">Ver</button>
+          </label>
+
+          <div class="login-options login-options-v2">
+            <label><input type="checkbox"> Mantener sesión</label>
+            <span>Acceso autorizado</span>
+          </div>
+
+          <button class="login-submit login-submit-v2" type="submit">Ingresar al sistema</button>
+        </form>
+
+        <div class="login-help-card login-help-card-v2">
+          <strong>Acceso administrativo</strong>
+          <span>Usa el usuario y contraseña entregados por administración.</span>
+        </div>
+      </div>
+
+      <footer class="login-footer-v2">© 2026 <strong>InLearning</strong> · Sistema de control institucional</footer>
+    </div>
+  </div>
+</section>
+
+<script>
+function togglePassword(){
+  const input = document.getElementById('passwordInput');
+  const btn = document.querySelector('.eye-btn-v2');
+  const visible = input.type === 'password';
+  input.type = visible ? 'text' : 'password';
+  if(btn){ btn.textContent = visible ? 'Ocultar' : 'Ver'; }
+}
+</script>
+{% endblock %}

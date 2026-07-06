@@ -1,0 +1,22 @@
+{% extends 'base.html' %}{% block content %}
+<header class="top securityTop easyHero">
+  <div>
+    <span class="heroLabel">🛡️ REGISTROS DINÁMICOS</span>
+    <h1>Panel de Seguridad</h1>
+    <p>Solo accesos rápidos para registrar ingresos desde PC o celular · Hora Lima/Perú: <b>{{stats.lima_now}}</b></p>
+  </div>
+  <span class="date">Recepción</span>
+</header>
+
+<section class="securityActions dynamicOnly">
+  <a class="actionBig alumno" href="{{url_for('consulta')}}"><span>🎓</span><b>Registrar alumno</b><small>DNI o código de barras</small></a>
+  <a class="actionBig docente" href="{{url_for('teacher_check')}}"><span>🏫</span><b>Registrar docente</b><small>Ingreso por DNI</small></a>
+  <a class="actionBig sae" href="{{url_for('new_visitor', area='SAE')}}"><span>📋</span><b>Visita SAE</b><small>Enviar ingreso al área SAE</small></a>
+  <a class="actionBig comercial" href="{{url_for('new_visitor', area='COMERCIAL')}}"><span>💼</span><b>Visita Comercial</b><small>Enviar ingreso a Comercial</small></a>
+</section>
+
+<section class="card securityCleanCard">
+  <h3>✅ Módulo para Seguridad</h3>
+  <p>Un adecuado control de seguridad ayuda a prevenir incidentes y protege a toda nuestra comunidad. Colaboremos respetando los protocolos de ingreso y las indicaciones del personal de seguridad.</p>
+</section>
+{% endblock %}
