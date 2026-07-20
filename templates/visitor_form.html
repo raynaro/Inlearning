@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card consult">
+  <div class="sectionBrand"><strong>PDR</strong><span>Plataforma de Registro</span></div>
+  <div class="sectionHead"><div><h2>Registro de visita nueva</h2><p>La visita quedará vinculada a un instituto y una sede.</p></div><span class="scopeTag">{{institute}} {{campus}}</span></div>
+  <form method="post" class="formgrid scaleVisitorForm" id="visitorForm">
+    {% if session.get('role')=='admin' %}<select name="institute" required>{% for inst in institutes %}<option value="{{inst}}" {% if institute==inst %}selected{% endif %}>{{inst}}</option>{% endfor %}</select><select name="campus" required>{% for sede in campuses %}<option value="{{sede}}" {% if campus==sede %}selected{% endif %}>{{sede}}</option>{% endfor %}</select>{% endif %}
+    <input name="full_name" placeholder="Nombres completos" required>
+    <input name="dni" placeholder="DNI" inputmode="numeric" required>
+    <input name="phone" placeholder="Teléfono" inputmode="tel" required>
+    <select name="destination_area" id="destinationArea" required><option value="">Destino de la visita</option><option value="SAE" {% if selected_area=='SAE' %}selected{% endif %}>SAE</option><option value="COMERCIAL" {% if selected_area=='COMERCIAL' %}selected{% endif %}>COMERCIAL</option></select>
+    <select name="commercial_reason" id="commercialReason" class="commercialType"><option value="">Motivo de Comercial</option><option value="CARRERA">Carrera</option><option value="CURSO">Curso</option></select>
+    <input name="reason" id="standardReason" placeholder="Motivo u observación para SAE">
+    <button>Registrar visita en esta sede</button>
+  </form>
+</section>
+<script>(function(){const a=document.getElementById('destinationArea'),c=document.getElementById('commercialReason'),r=document.getElementById('standardReason');function set(){const commercial=a.value==='COMERCIAL';c.style.display=commercial?'block':'none';c.required=commercial;r.style.display=commercial?'none':'block';if(commercial)r.value=''}a.addEventListener('change',set);set()})();</script>
+{% endblock %}

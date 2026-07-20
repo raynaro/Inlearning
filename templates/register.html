@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="center userEditCenter">
+  <form class="card userEditForm scaleUserForm" method="post">
+    <div class="sectionHead"><div><h2>Crear usuario</h2><p>Crea un acceso separado por instituto, sede y rol.</p></div><span>Nueva cuenta</span></div>
+    <label>Nombre completo<input name="name" required></label>
+    <label>Correo o usuario<input name="email" type="email" required></label>
+    <label>Contraseña inicial<input name="password" type="password" required></label>
+    <label>Código de cuenta<input name="account_code" placeholder="Ej. SAE-ZEG-SJM-01"></label>
+    <label>Rol<select name="role" id="roleSelect"><option value="security">Seguridad</option><option value="sae">SAE</option><option value="commercial">Comercial</option><option value="admin">Administrador</option></select></label>
+    <div class="scopeFields" id="scopeFields">
+      <label>Instituto<select name="institute"><option value="">Seleccionar</option>{% for inst in institutes %}<option value="{{inst}}">{{inst}}</option>{% endfor %}</select></label>
+      <label>Sede<select name="campus"><option value="">Seleccionar</option>{% for sede in campuses %}<option value="{{sede}}">{{sede}}</option>{% endfor %}</select></label>
+    </div>
+    <div class="formActions"><button>Crear usuario</button><a class="btn secondary" href="{{url_for('users')}}">Cancelar</a></div>
+  </form>
+</section>
+<script>const r=document.getElementById('roleSelect'),s=document.getElementById('scopeFields');function toggle(){s.style.display=r.value==='admin'?'none':'grid'}r.addEventListener('change',toggle);toggle();</script>
+{% endblock %}

@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block content %}
+<header class="easyHero securityScopeHero">
+  <div><span class="heroLabel">🛡 SEGURIDAD</span><h1><strong>PDR</strong> Plataforma de Registro</h1><p>{{institute}} {{campus}}</p></div>
+  <div class="scopeLockBadge">🔒 Datos exclusivos de esta sede</div>
+</header>
+
+<section class="grid4 compactStats multiStats">
+  <div class="stat"><span class="statIcon">🎓</span><b>{{stats.students_today}}</b><span>Alumnos registrados hoy</span></div>
+  <div class="stat"><span class="statIcon">🏫</span><b>{{stats.teachers_today}}</b><span>Docentes registrados hoy</span></div>
+  <div class="stat"><span class="statIcon">🚶</span><b>{{stats.visits_today}}</b><span>Visitas de la sede hoy</span></div>
+  <div class="stat"><span class="statIcon">📥</span><b>{{stats.requests_pending}}</b><span>Solicitudes pendientes</span></div>
+  <div class="stat"><span class="statIcon">👤</span><b>{{stats.my_actions}}</b><span>Mis acciones de hoy</span></div>
+</section>
+
+<section class="securityActions">
+  <a class="actionBig" href="{{url_for('consulta')}}"><span>🎓</span><b>Registrar alumno</b><small>Consulta únicamente la base de {{institute}} {{campus}}.</small></a>
+  <a class="actionBig docente" href="{{url_for('teacher_check')}}"><span>🏫</span><b>Registrar docente</b><small>Control independiente para esta sede.</small></a>
+  <a class="actionBig sae" href="{{url_for('new_visitor',area='SAE')}}"><span>🎓</span><b>Visita SAE</b><small>La visita se enviará al SAE de esta misma sede.</small></a>
+  <a class="actionBig comercial" href="{{url_for('new_visitor',area='COMERCIAL')}}"><span>💼</span><b>Visita Comercial</b><small>La visita se enviará a Comercial de esta misma sede.</small></a>
+  <a class="actionBig solicitud" href="{{url_for('new_registration_request')}}"><span>📨</span><b>Solicitar registro</b><small>Envía una solicitud exclusiva a la bandeja de {{institute}} {{campus}}.</small></a>
+  <a class="actionBig bandeja" href="{{url_for('registration_requests')}}"><span>📥</span><b>Ver solicitudes</b><small>Consulta el estado de las solicitudes de esta sede.</small></a>
+</section>
+
+<section class="layout securityLayout">
+  <div class="card professionalTable"><div class="sectionHead"><h3>Últimos alumnos de la sede</h3><span>{{institute}} {{campus}}</span></div><div class="tableWrap"><table><tr><th>Hora</th><th>Alumno</th><th>Instituto</th><th>Sede</th><th>Estado</th></tr>{% for r in recent_students %}<tr><td>{{r.created_at[11:16]}}</td><td><b>{{r.student_name or r.query}}</b></td><td>{{r.student_institute or institute}}</td><td>{{r.student_campus or campus}}</td><td><span class="badge {{r.result|lower}}">{{r.result}}</span></td></tr>{% else %}<tr><td colspan="5" class="emptyCell">Sin registros recientes.</td></tr>{% endfor %}</table></div></div>
+  <div class="card professionalTable"><div class="sectionHead"><h3>Últimas visitas de la sede</h3><span>{{institute}} {{campus}}</span></div><div class="tableWrap"><table><tr><th>Hora</th><th>Persona</th><th>Área</th><th>Status</th></tr>{% for v in recent_visits %}<tr><td>{{v.created_at[11:16]}}</td><td><b>{{v.full_name}}</b></td><td>{{v.destination_area}}</td><td><span class="badge {% if v.visit_status=='ATENDIDO' %}activo{% elif v.visit_status=='NO ATENDIDO' %}inactivo{% else %}area{% endif %}">{{v.visit_status}}</span></td></tr>{% else %}<tr><td colspan="4" class="emptyCell">Sin visitas recientes.</td></tr>{% endfor %}</table></div></div>
+</section>
+{% endblock %}

@@ -1,0 +1,166 @@
+{% extends 'base.html' %}
+{% block content %}
+<header class="top adminHero proHero multiHero">
+  <div>
+    <span class="heroLabel">📊 ADMINISTRACIÓN MULTISEDE</span>
+    <h1 class="adminTitleBrand"><strong>PDR</strong><span>Plataforma de Registro</span></h1>
+    <p class="heroScopeText">{{branch_label(selected_institute, selected_campus) if selected_institute or selected_campus else 'Vista consolidada de IDAT y ZEGEL'}}</p>
+  </div>
+  <div class="heroButtons">
+    <a class="btn lightBtn" href="{{url_for('branches')}}">Gestionar sedes</a>
+    <a class="btn lightBtn" href="{{url_for('users')}}">Gestionar usuarios</a>
+    <a class="btn lightBtn dangerLight" href="{{url_for('logout')}}">Cerrar sesión</a>
+  </div>
+</header>
+
+<section class="card scopeControlCard">
+  <div class="sectionHead">
+    <div><h3>🔍 Alcance del panel</h3><p>Filtra la información sin mezclar institutos ni sedes.</p></div>
+    <span>{{lima_now}}</span>
+  </div>
+  <form method="get" class="scopeFilterForm">
+    <select name="institute" id="adminInstitute">
+      <option value="">Todos los institutos</option>
+      {% for inst in institutes %}<option value="{{inst}}" {% if selected_institute==inst %}selected{% endif %}>{{inst}}</option>{% endfor %}
+    </select>
+    <select name="campus" id="adminCampus">
+      <option value="">Todas las sedes</option>
+      {% for sede in campuses %}<option value="{{sede}}" {% if selected_campus==sede %}selected{% endif %}>{{sede}}</option>{% endfor %}
+    </select>
+    <button>Aplicar filtro</button>
+    <a class="btn secondary" href="{{url_for('dashboard')}}">Vista general</a>
+  </form>
+</section>
+
+<section class="grid4 adminStats multiStats">
+  <div class="stat kpi"><span class="statIcon">🎓</span><b>{{stats.active}}</b><span>Alumnos activos</span></div>
+  <div class="stat kpi"><span class="statIcon">👥</span><b>{{stats.users}}</b><span>Usuarios operativos</span></div>
+  <div class="stat kpi"><span class="statIcon">🚶</span><b>{{stats.visitors_today}}</b><span>Visitas de hoy</span></div>
+  <div class="stat kpi"><span class="statIcon">⏳</span><b>{{stats.pending}}</b><span>Visitas nuevas</span></div>
+  <div class="stat kpi"><span class="statIcon">✅</span><b>{{stats.attended}}</b><span>Visitas atendidas</span></div>
+  <div class="stat kpi"><span class="statIcon">📥</span><b>{{stats.registration_requests}}</b><span>Solicitudes pendientes</span></div>
+  <div class="stat kpi"><span class="statIcon">🏢</span><b>{{stats.branches}}</b><span>Sedes en el alcance</span></div>
+</section>
+
+<section class="card branchOverviewSection">
+  <div class="sectionHead">
+    <div><h2>🏢 Control por instituto y sede</h2><p>Cada tarjeta corresponde a una unidad operativa independiente.</p></div>
+    <a class="btn" href="{{url_for('branches')}}">Ver gestión completa</a>
+  </div>
+  <div class="branchCardGrid compactBranchGrid">
+    {% for b in branch_cards %}
+    <a class="branchControlCard {{b.institute|lower}}Branch" href="{{url_for('branch_detail', institute=b.institute, campus=b.campus)}}">
+      <div class="branchCardHead"><span class="instituteBadge institute{{b.institute|lower}}">{{b.institute}}</span><b>{{b.campus}}</b></div>
+      <div class="branchMetrics">
+        <span><strong>{{b.students}}</strong> alumnos</span>
+        <span><strong>{{b.users}}</strong> usuarios</span>
+        <span><strong>{{b.visits}}</strong> visitas hoy</span>
+        <span><strong>{{b.pending}}</strong> visitas nuevas</span>
+        <span><strong>{{b.registration_requests}}</strong> solicitudes</span>
+      </div>
+      <small>Abrir control de sede →</small>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="adminActivitySection" id="actividad-7-30">
+  <div class="sectionHead adminActivityTitle">
+    <div><h2>📈 Actividad de visitas</h2><p>Comparación de registros y atenciones en 7 o 30 días para el alcance seleccionado.</p></div>
+    <span>SAE y Comercial por separado</span>
+  </div>
+  <div class="adminActivityGrid">
+    {% for area in ['SAE','COMERCIAL'] %}
+    <section class="activityChartCard adminActivityCard" data-area="{{area}}">
+      <div class="activityChartHeader">
+        <div><h3>Actividad {{'Comercial' if area=='COMERCIAL' else 'SAE'}}</h3><p>Visitas registradas y atendidas por día</p></div>
+        <div class="activityChartControls">
+          <div class="activityLegend"><span><i class="legendBlue"></i> Visitas</span><span><i class="legendGreen"></i> Atendidos</span></div>
+          <div class="periodTabs"><button type="button" class="periodTab is-active" data-days="7">7 días</button><button type="button" class="periodTab" data-days="30">30 días</button></div>
+        </div>
+      </div>
+      <div class="activityChartSummary"><span><b class="activityVisitsTotal">0</b> visitas</span><span><b class="activityAttendedTotal">0</b> atendidos</span></div>
+      <div class="activityCanvasWrap"><canvas class="activityChartCanvas"></canvas><div class="activityTooltip" hidden></div></div>
+    </section>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="card professionalTable requestDashboardCard">
+  <div class="sectionHead"><div><h3>📥 Solicitudes de registro por sede</h3><p>Altas pendientes y resueltas sin mezclar unidades.</p></div><a class="btn secondary" href="{{url_for('registration_requests',institute=selected_institute,campus=selected_campus)}}">Abrir bandeja</a></div>
+  <div class="tableWrap"><table><tr><th>Fecha</th><th>Sede</th><th>Tipo</th><th>Persona</th><th>Solicitó</th><th>Estado</th></tr>
+    {% for r in recent_requests %}<tr><td>{{r.created_at[0:16]|replace('T',' ')}}</td><td><b>{{r.institute}} {{r.campus}}</b></td><td>{{r.request_type}}</td><td>{{r.full_name}}</td><td>{{r.requester_name or '-'}}</td><td><span class="badge request{{r.status|lower}}">{{r.status}}</span></td></tr>{% else %}<tr><td colspan="6" class="emptyCell">No hay solicitudes en este alcance.</td></tr>{% endfor %}
+  </table></div>
+</section>
+
+<section class="card professionalTable">
+  <div class="sectionHead"><div><h3>🚶 Últimas visitas</h3><p>Registro consolidado del alcance actual.</p></div><a class="btn secondary" href="{{url_for('visitors', institute=selected_institute, campus=selected_campus)}}">Ver todas</a></div>
+  <div class="tableWrap"><table>
+    <tr><th>Fecha</th><th>Instituto</th><th>Sede</th><th>Área</th><th>Visitante</th><th>Registró</th><th>Atendió</th><th>Status</th></tr>
+    {% for v in recent_visitors %}
+    <tr><td>{{v.created_at[0:16]|replace('T',' ')}}</td><td><span class="instituteBadge institute{{v.institute|lower}}">{{v.institute}}</span></td><td>{{v.campus}}</td><td>{{v.destination_area}}</td><td><b>{{v.full_name}}</b></td><td>{{v.registered_by or '-'}}</td><td>{{v.attended_by or '-'}}</td><td><span class="badge {% if v.visit_status=='ATENDIDO' %}activo{% elif v.visit_status=='NO ATENDIDO' %}inactivo{% else %}area{% endif %}">{{v.visit_status}}</span></td></tr>
+    {% else %}<tr><td colspan="8" class="emptyCell">No hay visitas para este alcance.</td></tr>{% endfor %}
+  </table></div>
+</section>
+
+<section class="card" id="detalle-usuarios">
+  <div class="sectionHead"><div><h3>👥 Actividad del personal</h3><p>Permite saber quién registró y quién atendió.</p></div><a class="btn secondary" href="{{url_for('users', institute=selected_institute, campus=selected_campus)}}">Gestionar cuentas</a></div>
+  <div class="tableWrap"><table>
+    <tr><th>Código</th><th>Usuario</th><th>Instituto</th><th>Sede</th><th>Rol</th><th>Alumnos</th><th>Docentes</th><th>Visitas</th><th>Atenciones</th><th>Total</th></tr>
+    {% for u in user_activity %}
+    <tr><td><span class="accountCode">{{u.account_code or 'MANUAL'}}</span></td><td><b>{{u.name}}</b></td><td>{{u.institute or '-'}}</td><td>{{u.campus or '-'}}</td><td>{{roles.get(u.role,u.role)}}</td><td>{{u.alumnos}}</td><td>{{u.docentes}}</td><td>{{u.visitas}}</td><td>{{u.atenciones}}</td><td><b>{{u.total}}</b></td></tr>
+    {% else %}<tr><td colspan="10" class="emptyCell">No hay usuarios para este alcance.</td></tr>{% endfor %}
+  </table></div>
+</section>
+
+<section class="layout adminLayout" id="importar">
+  <div class="card importScaleCard">
+    <div class="sectionHead"><div><h3>⬆ Importar alumnos por sede</h3><p>Solo actualiza la unidad elegida; las demás bases no se modifican.</p></div><span>IDAT / ZEGEL</span></div>
+    <form method="post" action="{{url_for('import_excel')}}" enctype="multipart/form-data" class="scaleImportForm">
+      <select name="institute" required><option value="">Instituto</option>{% for inst in institutes %}<option value="{{inst}}">{{inst}}</option>{% endfor %}</select>
+      <select name="campus" required><option value="">Sede</option>{% for sede in campuses %}<option value="{{sede}}">{{sede}}</option>{% endfor %}</select>
+      <input type="file" name="file" accept=".xlsx,.xlsm" required>
+      <button>Importar alumnos</button>
+    </form>
+    <small>Columnas mínimas: NombreCompleto, DNI y Código. También puede incluir INSTITUTO y SEDE.</small>
+  </div>
+  <div class="card importScaleCard">
+    <div class="sectionHead"><div><h3>🏫 Importar docentes por sede</h3><p>La actualización queda separada por instituto y sede.</p></div><span>Control local</span></div>
+    <form method="post" action="{{url_for('import_teachers')}}" enctype="multipart/form-data" class="scaleImportForm">
+      <select name="institute" required><option value="">Instituto</option>{% for inst in institutes %}<option value="{{inst}}">{{inst}}</option>{% endfor %}</select>
+      <select name="campus" required><option value="">Sede</option>{% for sede in campuses %}<option value="{{sede}}">{{sede}}</option>{% endfor %}</select>
+      <input type="file" name="file" accept=".xlsx,.xlsm" required>
+      <button>Importar docentes</button>
+    </form>
+  </div>
+</section>
+
+<section class="card auditCard">
+  <div class="sectionHead"><div><h3>🔐 Auditoría administrativa</h3><p>Últimos cambios realizados por administradores.</p></div><span>Trazabilidad</span></div>
+  <div class="tableWrap"><table><tr><th>Fecha</th><th>Administrador</th><th>Acción</th><th>Detalle</th></tr>
+    {% for a in audits %}<tr><td>{{a.created_at[0:16]|replace('T',' ')}}</td><td>{{a.admin_name or '-'}}</td><td><span class="accountCode">{{a.action}}</span></td><td>{{a.detail or '-'}}</td></tr>{% else %}<tr><td colspan="4" class="emptyCell">Aún no hay cambios auditados.</td></tr>{% endfor %}
+  </table></div>
+</section>
+
+<script>
+(function(){
+  const allDatasets={{admin_activity_charts|tojson}};
+  document.querySelectorAll('.adminActivityCard').forEach(card=>{
+    const datasets=allDatasets[card.dataset.area],canvas=card.querySelector('canvas'),wrap=card.querySelector('.activityCanvasWrap'),tooltip=card.querySelector('.activityTooltip');
+    const visitsTotal=card.querySelector('.activityVisitsTotal'),attendedTotal=card.querySelector('.activityAttendedTotal'),tabs=[...card.querySelectorAll('.periodTab')];
+    let days='7',points=[];
+    function draw(){
+      const data=datasets[days],rect=wrap.getBoundingClientRect(),w=Math.max(rect.width,320),h=320,dpr=Math.min(devicePixelRatio||1,2),p={l:46,r:18,t:24,b:48};
+      canvas.width=w*dpr;canvas.height=h*dpr;canvas.style.width=w+'px';canvas.style.height=h+'px';const ctx=canvas.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);
+      visitsTotal.textContent=data.total_visits;attendedTotal.textContent=data.total_attended;const max=Math.max(4,...data.visits,...data.attended),base=h-p.b,plot=base-p.t;
+      ctx.font='12px Arial';ctx.fillStyle='#8792a5';ctx.textAlign='right';for(let i=0;i<=4;i++){const y=p.t+plot*i/4;ctx.strokeStyle='#edf1f7';ctx.beginPath();ctx.moveTo(p.l,y);ctx.lineTo(w-p.r,y);ctx.stroke();ctx.fillText(Math.round(max*(4-i)/4),p.l-8,y+4)}
+      function pts(vals){return vals.map((v,i)=>({x:p.l+(w-p.l-p.r)*(i/Math.max(vals.length-1,1)),y:p.t+(1-v/max)*plot,v}))}
+      function series(ps,stroke,fill){const g=ctx.createLinearGradient(0,p.t,0,base);g.addColorStop(0,fill);g.addColorStop(1,'rgba(255,255,255,0)');ctx.beginPath();ps.forEach((pt,i)=>i?ctx.lineTo(pt.x,pt.y):ctx.moveTo(pt.x,pt.y));ctx.lineTo(ps[ps.length-1].x,base);ctx.lineTo(ps[0].x,base);ctx.closePath();ctx.fillStyle=g;ctx.fill();ctx.beginPath();ps.forEach((pt,i)=>i?ctx.lineTo(pt.x,pt.y):ctx.moveTo(pt.x,pt.y));ctx.strokeStyle=stroke;ctx.lineWidth=3;ctx.stroke()}
+      const vp=pts(data.visits),ap=pts(data.attended);series(vp,'#3b82f6','rgba(59,130,246,.32)');series(ap,'#10b981','rgba(16,185,129,.28)');ctx.textAlign='center';ctx.fillStyle='#64748b';const every=days==='30'?5:1;data.labels.forEach((l,i)=>{if(i%every===0||i===data.labels.length-1)ctx.fillText(l,vp[i].x,base+20)});points=vp.map((pt,i)=>({x:pt.x,y:Math.min(pt.y,ap[i].y),date:data.full_labels[i],visits:data.visits[i],attended:data.attended[i]}));
+    }
+    tabs.forEach(t=>t.onclick=()=>{days=t.dataset.days;tabs.forEach(x=>x.classList.toggle('is-active',x===t));draw()});
+    canvas.onmousemove=e=>{const r=canvas.getBoundingClientRect(),x=e.clientX-r.left;if(!points.length)return;const q=points.reduce((a,b)=>Math.abs(b.x-x)<Math.abs(a.x-x)?b:a);tooltip.innerHTML='<strong>'+q.date+'</strong><span>Visitas: <b>'+q.visits+'</b></span><span>Atendidos: <b>'+q.attended+'</b></span>';tooltip.hidden=false;tooltip.style.left=Math.max(8,Math.min(q.x-75,r.width-165))+'px';tooltip.style.top=Math.max(6,q.y-85)+'px'};canvas.onmouseleave=()=>tooltip.hidden=true;window.addEventListener('resize',draw);draw();
+  });
+})();
+</script>
+{% endblock %}

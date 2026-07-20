@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% block content %}
+<header class="top adminHero proHero multiHero">
+  <div><span class="heroLabel">🏢 ESTRUCTURA OPERATIVA</span><h1>Institutos y sedes</h1><p class="heroScopeText">Estructura oficial: cinco sedes IDAT y tres sedes ZEGEL, todas con operación independiente.</p></div>
+  <div class="heroButtons"><a class="btn lightBtn" href="{{url_for('dashboard')}}">Volver al panel</a><a class="btn lightBtn" href="{{url_for('register')}}">Crear usuario</a></div>
+</header>
+
+<section class="card scaleNotice">
+  <strong>Separación activa:</strong> cada usuario de Seguridad, SAE y Comercial pertenece a un solo instituto y una sola sede. Sus consultas, visitas, atenciones y reportes quedan aislados de las demás unidades.
+</section>
+
+{% for inst in institutes %}
+<section class="branchInstituteSection">
+  <div class="sectionHead"><div><h2>{{inst}}</h2><p>{{branch_campuses[inst]|length}} sedes oficiales con bandejas y accesos separados.</p></div><span class="instituteBadge institute{{inst|lower}}">{{inst}}</span></div>
+  <div class="branchCardGrid">
+    {% for b in branch_cards if b.institute==inst %}
+    <a class="branchControlCard {{inst|lower}}Branch" href="{{url_for('branch_detail', institute=b.institute, campus=b.campus)}}">
+      <div class="branchCardHead"><span class="branchPin">📍</span><b>{{b.campus}}</b></div>
+      <div class="branchRoleStrip"><span>🛡 {{b.security}} Seguridad</span><span>🎓 {{b.sae}} SAE</span><span>💼 {{b.commercial}} Comercial</span></div>
+      <div class="branchMetrics"><span><strong>{{b.students}}</strong> alumnos</span><span><strong>{{b.visits_today}}</strong> visitas hoy</span><span><strong>{{b.pending}}</strong> visitas nuevas</span><span><strong>{{b.registration_requests}}</strong> solicitudes</span></div>
+      <small>Administrar esta sede →</small>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+
+<section class="card auditCard">
+  <div class="sectionHead"><div><h3>🔐 Cambios administrativos recientes</h3><p>Registro de creación y modificación de cuentas y bases.</p></div><span>Auditoría</span></div>
+  <div class="tableWrap"><table><tr><th>Fecha</th><th>Administrador</th><th>Acción</th><th>Detalle</th></tr>
+    {% for a in audits %}<tr><td>{{a.created_at[0:16]|replace('T',' ')}}</td><td>{{a.admin_name or '-'}}</td><td><span class="accountCode">{{a.action}}</span></td><td>{{a.detail or '-'}}</td></tr>{% else %}<tr><td colspan="4" class="emptyCell">No hay cambios registrados.</td></tr>{% endfor %}
+  </table></div>
+</section>
+{% endblock %}

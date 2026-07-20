@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="center userEditCenter">
+  <form class="card userEditForm scaleUserForm" method="post">
+    <div class="sectionHead"><div><h2>Editar cuenta {{user.account_code or ''}}</h2><p>Define el alcance exacto del trabajador.</p></div><span>{{roles.get(user.role,user.role)}}</span></div>
+    <label>Nombre completo<input name="name" value="{{user.name}}" required></label>
+    <label>Correo o usuario<input name="email" value="{{user.email}}" required></label>
+    <label>Código de cuenta<input name="account_code" value="{{user.account_code or ''}}" placeholder="Ej. SEG-IDAT-SJM-01"></label>
+    <label>Rol<select name="role" id="roleSelect" required>{% for key,label in roles.items() %}<option value="{{key}}" {% if user.role==key %}selected{% endif %}>{{label}}</option>{% endfor %}</select></label>
+    <div class="scopeFields" id="scopeFields">
+      <label>Instituto<select name="institute"><option value="">Seleccionar</option>{% for inst in institutes %}<option value="{{inst}}" {% if user.institute==inst %}selected{% endif %}>{{inst}}</option>{% endfor %}</select></label>
+      <label>Sede<select name="campus"><option value="">Seleccionar</option>{% for sede in campuses %}<option value="{{sede}}" {% if user.campus==sede %}selected{% endif %}>{{sede}}</option>{% endfor %}</select></label>
+    </div>
+    <label>Nueva contraseña<input name="password" type="password" placeholder="Vacío para conservar la actual"></label>
+    <label>Estado<select name="active"><option value="1" {% if user.active %}selected{% endif %}>Cuenta activa</option><option value="0" {% if not user.active %}selected{% endif %}>Cuenta inactiva</option></select></label>
+    <div class="scopeExplanation">Las cuentas operativas solo pueden acceder a la combinación elegida. El rol Administrador tiene alcance global.</div>
+    <div class="formActions"><button>Guardar cambios</button><a class="btn secondary" href="{{url_for('users')}}">Cancelar</a></div>
+  </form>
+</section>
+<script>const r=document.getElementById('roleSelect'),s=document.getElementById('scopeFields');function toggle(){s.style.display=r.value==='admin'?'none':'grid'}r.addEventListener('change',toggle);toggle();</script>
+{% endblock %}

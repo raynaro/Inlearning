@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block content %}
+<header class="pageHeaderScale"><div><span class="heroLabel darkLabel">🏫 DOCENTES</span><h1>Docentes por instituto y sede</h1><p>La base docente también queda separada por unidad operativa.</p></div></header>
+<section class="layout adminLayout">
+  <div class="card">
+    <form method="get" class="userFilters scaleUserFilters"><input name="q" value="{{q}}" placeholder="Nombre, DNI, área o correo"><select name="institute"><option value="">Todos</option>{% for inst in institutes %}<option value="{{inst}}" {% if institute==inst %}selected{% endif %}>{{inst}}</option>{% endfor %}</select><select name="campus"><option value="">Todas las sedes</option>{% for sede in campuses %}<option value="{{sede}}" {% if campus==sede %}selected{% endif %}>{{sede}}</option>{% endfor %}</select><button>Filtrar</button></form>
+    <div class="tableWrap"><table><tr><th>Docente</th><th>DNI</th><th>Instituto</th><th>Sede</th><th>Área</th><th>Teléfono</th><th>Estado</th></tr>{% for t in teachers %}<tr><td><b>{{t.name}}</b><small class="cellSub">{{t.email or ''}}</small></td><td>{{t.dni}}</td><td>{{t.institute}}</td><td>{{t.campus}}</td><td>{{t.area or '-'}}</td><td>{{t.phone or '-'}}</td><td><span class="badge {{'activo' if t.active else 'inactivo'}}">{{'ACTIVO' if t.active else 'INACTIVO'}}</span></td></tr>{% else %}<tr><td colspan="7" class="emptyCell">Sin docentes.</td></tr>{% endfor %}</table></div>
+  </div>
+  <div class="card importScaleCard"><div class="sectionHead"><h3>Importar docentes</h3><span>Por sede</span></div><form method="post" action="{{url_for('import_teachers')}}" enctype="multipart/form-data" class="scaleImportForm"><select name="institute" required><option value="">Instituto</option>{% for inst in institutes %}<option value="{{inst}}">{{inst}}</option>{% endfor %}</select><select name="campus" required><option value="">Sede</option>{% for sede in campuses %}<option value="{{sede}}">{{sede}}</option>{% endfor %}</select><input type="file" name="file" accept=".xlsx,.xlsm" required><button>Importar</button></form></div>
+</section>
+{% endblock %}

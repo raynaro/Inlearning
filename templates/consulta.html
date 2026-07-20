@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card consult scanMode">
+  <div class="sectionHead"><div><h2>Consulta y registro de alumno</h2><p>El acceso se valida dentro del instituto y sede seleccionados.</p></div><span class="scopeTag">{{institute}} {{campus}}</span></div>
+  <form method="post" class="search continuousSearch scaleSearchForm" id="studentSearchForm">
+    {% if session.get('role')=='admin' %}
+    <select name="institute" required>{% for inst in institutes %}<option value="{{inst}}" {% if institute==inst %}selected{% endif %}>{{inst}}</option>{% endfor %}</select>
+    <select name="campus" required>{% for sede in campuses %}<option value="{{sede}}" {% if campus==sede %}selected{% endif %}>{{sede}}</option>{% endfor %}</select>
+    {% endif %}
+    <input id="studentSearchInput" name="q" placeholder="DNI o Código" required autofocus autocomplete="off">
+    <input name="note" placeholder="Observación opcional" autocomplete="off">
+    <button>🔎 Consultar y registrar</button>
+  </form>
+  {% if q %}
+    <div class="lastSearch">Última búsqueda: <b>{{q}}</b> en <b>{{institute}} {{campus}}</b></div>
+    {% if result and result.active %}
+      <div class="result ok instituteResult"><div class="avatar">👤</div><div><div class="resultBadges"><span class="badge activo">ACTIVO</span><span class="instituteBadge institute{{result.institute|lower}}">{{result.institute}}</span><span class="campusBadge">{{result.campus}}</span></div><h3>{{result.name}}</h3><p>DNI <b>{{result.dni}}</b> · Código <b>{{result.code}}</b></p></div><small>Entrada registrada por <b>{{session.get('name')}}</b>.</small></div>
+    {% else %}
+      <div class="result bad"><div class="avatar red">👤</div><div><span class="badge inactivo">SIN ACCESO</span><h3>No pertenece a la base activa de esta sede</h3><p>Se buscó únicamente en {{institute}} {{campus}}.</p><a class="btn requestShortcut" href="{{url_for('new_registration_request',dni=q,institute=institute,campus=campus)}}">📨 Crear solicitud de registro</a></div></div>
+    {% endif %}
+  {% endif %}
+</section>
+<script>const i=document.getElementById('studentSearchInput');if(i){i.focus();i.select()}</script>
+{% endblock %}

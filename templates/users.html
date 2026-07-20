@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block content %}
+<header class="pageHeaderScale"><div><span class="heroLabel darkLabel">👥 CONTROL DE ACCESOS</span><h1>Gestión de usuarios multisede</h1><p>Asigna cada cuenta a un instituto, una sede y un área para impedir que los datos se mezclen.</p></div><a class="btn" href="{{url_for('register')}}">+ Crear usuario</a></header>
+
+<section class="accountSummaryGrid">
+  <a href="{{url_for('users',role='security')}}"><b>{{counts.security}}</b><span>Seguridad</span></a>
+  <a href="{{url_for('users',role='sae')}}"><b>{{counts.sae}}</b><span>SAE</span></a>
+  <a href="{{url_for('users',role='commercial')}}"><b>{{counts.commercial}}</b><span>Comercial</span></a>
+  <a href="{{url_for('users')}}"><b>{{counts.inactive}}</b><span>Inactivas</span></a>
+</section>
+
+<section class="card">
+  <form class="userFilters scaleUserFilters" method="get">
+    <input name="q" value="{{q}}" placeholder="Buscar nombre, correo o código">
+    <select name="role"><option value="">Todos los roles</option>{% for key,label in roles.items() %}<option value="{{key}}" {% if role_filter==key %}selected{% endif %}>{{label}}</option>{% endfor %}</select>
+    <select name="institute"><option value="">Todos los institutos</option>{% for inst in institutes %}<option value="{{inst}}" {% if institute_filter==inst %}selected{% endif %}>{{inst}}</option>{% endfor %}</select>
+    <select name="campus"><option value="">Todas las sedes</option>{% for sede in campuses %}<option value="{{sede}}" {% if campus_filter==sede %}selected{% endif %}>{{sede}}</option>{% endfor %}</select>
+    <button>Filtrar</button><a class="btn secondary" href="{{url_for('users')}}">Limpiar</a>
+  </form>
+
+  <div class="credentialNotice"><strong>Regla de acceso:</strong> Seguridad, SAE y Comercial solo ven la información de su instituto y sede. El administrador puede cambiar el nombre, correo, contraseña, rol, instituto, sede y estado de cualquier cuenta.</div>
+
+  <div class="tableWrap"><table class="usersTable">
+    <tr><th>Código</th><th>Nombre</th><th>Usuario / correo</th><th>Instituto</th><th>Sede</th><th>Rol</th><th>Estado</th><th>Acción</th></tr>
+    {% for u in users %}
+    <tr><td><span class="accountCode">{{u.account_code or 'MANUAL'}}</span></td><td><b>{{u.name}}</b></td><td>{{u.email}}</td><td>{% if u.institute %}<span class="instituteBadge institute{{u.institute|lower}}">{{u.institute}}</span>{% else %}<span class="globalBadge">GLOBAL</span>{% endif %}</td><td>{{u.campus or 'Todas'}}</td><td>{{roles.get(u.role,u.role)}}</td><td><span class="badge {{'activo' if u.active else 'inactivo'}}">{{'ACTIVA' if u.active else 'INACTIVA'}}</span></td><td><a class="btn editSmall" href="{{url_for('edit_user',user_id=u.id)}}">✏ Editar</a></td></tr>
+    {% else %}<tr><td colspan="8" class="emptyCell">No hay usuarios para este filtro.</td></tr>{% endfor %}
+  </table></div>
+</section>
+{% endblock %}

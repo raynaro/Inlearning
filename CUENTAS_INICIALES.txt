@@ -1,0 +1,11 @@
+PDR · Plataforma de Registro Multisede
+
+Las cuentas actualizadas están organizadas por instituto y sede en:
+
+CUENTAS_POR_SEDE.txt
+
+Administrador general:
+Usuario: admin@idat.edu.pe
+Contraseña: admin123
+
+Por seguridad, cambia todas las contraseñas antes de publicar el sistema.

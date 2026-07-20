@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block content %}
+<header class="pageHeaderScale requestHeader">
+  <div><span class="heroLabel darkLabel">📝 SOLICITUD DE REGISTRO</span><h1>{{institute}} {{campus}}</h1><p>La solicitud llegará únicamente a la bandeja administrativa de esta sede.</p></div>
+  <a class="btn secondary" href="{{url_for('registration_requests',institute=institute,campus=campus)}}">Ver bandeja</a>
+</header>
+
+<section class="center requestFormCenter">
+  <form class="card userEditForm scaleUserForm requestForm" method="post">
+    <div class="sectionHead"><div><h2>Nueva solicitud</h2><p>Solicita el alta de un alumno o docente en la base de la sede.</p></div><span class="scopeTag">{{institute}} {{campus}}</span></div>
+    {% if session.get('role')=='admin' %}
+    <div class="scopeFields">
+      <label>Instituto<select name="institute" required>{% for inst in institutes %}<option value="{{inst}}" {% if institute==inst %}selected{% endif %}>{{inst}}</option>{% endfor %}</select></label>
+      <label>Sede<select name="campus" required>{% for sede in campuses %}<option value="{{sede}}" {% if campus==sede %}selected{% endif %}>{{sede}}</option>{% endfor %}</select></label>
+    </div>
+    {% endif %}
+    <label>Tipo de registro<select name="request_type" id="requestType"><option value="ALUMNO">Alumno</option><option value="DOCENTE">Docente</option></select></label>
+    <label>Nombres completos<input name="full_name" required></label>
+    <label>DNI<input name="dni" inputmode="numeric" value="{{prefill_dni}}" required></label>
+    <label id="codeField">Código de alumno<input name="code" id="codeInput" placeholder="Código institucional"></label>
+    <label>Teléfono<input name="phone" inputmode="tel" placeholder="Opcional"></label>
+    <label>Observación<textarea name="detail" rows="4" placeholder="Motivo de la solicitud o información adicional"></textarea></label>
+    <div class="scopeExplanation">Administración podrá aprobar y registrar la solicitud únicamente en <b>{{institute}} {{campus}}</b>, o rechazarla dejando trazabilidad.</div>
+    <div class="formActions"><button>Enviar solicitud</button><a class="btn secondary" href="{{url_for('registration_requests',institute=institute,campus=campus)}}">Cancelar</a></div>
+  </form>
+</section>
+<script>
+(function(){const type=document.getElementById('requestType'),field=document.getElementById('codeField'),input=document.getElementById('codeInput');function sync(){const alumno=type.value==='ALUMNO';field.style.display=alumno?'block':'none';input.required=alumno;if(!alumno)input.value=''}type.addEventListener('change',sync);sync()})();
+</script>
+{% endblock %}

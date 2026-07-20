@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block content %}
+<header class="top adminHero proHero requestHero">
+  <div><span class="heroLabel">📥 SOLICITUDES POR SEDE</span><h1>PDR <span>Control de registros</span></h1><p class="heroScopeText">Cada sede tiene una bandeja independiente para alumnos y docentes.</p></div>
+  <div class="heroButtons"><a class="btn lightBtn" href="{{url_for('new_registration_request',institute=selected_institute,campus=selected_campus)}}">+ Nueva solicitud</a><a class="btn lightBtn" href="{{url_for('export_registration_requests',institute=selected_institute,campus=selected_campus)}}">Exportar Excel</a>{% if session.get('role')=='admin' %}<a class="btn lightBtn" href="{{url_for('branches')}}">Ver sedes</a>{% endif %}</div>
+</header>
+
+<section class="grid4 adminStats requestStats">
+  <a class="stat" href="{{url_for('registration_requests',institute=selected_institute,campus=selected_campus,status='PENDIENTE')}}"><span class="statIcon">⏳</span><b>{{counts.pendiente}}</b><span>Pendientes</span></a>
+  <a class="stat" href="{{url_for('registration_requests',institute=selected_institute,campus=selected_campus,status='APROBADA')}}"><span class="statIcon">✅</span><b>{{counts.aprobada}}</b><span>Aprobadas</span></a>
+  <a class="stat" href="{{url_for('registration_requests',institute=selected_institute,campus=selected_campus,status='RECHAZADA')}}"><span class="statIcon">✖</span><b>{{counts.rechazada}}</b><span>Rechazadas</span></a>
+</section>
+
+<section class="card">
+  <form method="get" class="userFilters scaleUserFilters">
+    {% if session.get('role')=='admin' %}
+    <select name="institute"><option value="">Todos los institutos</option>{% for inst in institutes %}<option value="{{inst}}" {% if selected_institute==inst %}selected{% endif %}>{{inst}}</option>{% endfor %}</select>
+    <select name="campus"><option value="">Todas las sedes</option>{% for sede in campuses %}<option value="{{sede}}" {% if selected_campus==sede %}selected{% endif %}>{{sede}}</option>{% endfor %}</select>
+    {% endif %}
+    <select name="status"><option value="">Todos los estados</option>{% for st in ['PENDIENTE','APROBADA','RECHAZADA'] %}<option value="{{st}}" {% if status_filter==st %}selected{% endif %}>{{st}}</option>{% endfor %}</select>
+    <button>Aplicar filtro</button><a class="btn secondary" href="{{url_for('registration_requests')}}">Limpiar</a>
+  </form>
+
+  <div class="tableWrap"><table class="requestTable">
+    <tr><th>Fecha</th><th>Sede</th><th>Tipo</th><th>Persona</th><th>DNI / Código</th><th>Solicitó</th><th>Observación</th><th>Estado</th><th>Gestión</th></tr>
+    {% for r in requests_data %}
+    <tr>
+      <td>{{r.created_at[0:16]|replace('T',' ')}}</td>
+      <td><b>{{r.institute}} {{r.campus}}</b></td>
+      <td><span class="accountCode">{{r.request_type}}</span></td>
+      <td><b>{{r.full_name}}</b><small class="cellSub">{{r.phone or 'Sin teléfono'}}</small></td>
+      <td>{{r.dni}}{% if r.code %}<small class="cellSub">{{r.code}}</small>{% endif %}</td>
+      <td>{{r.requester_name or '-'}}</td>
+      <td>{{r.detail or '-'}}</td>
+      <td><span class="badge request{{r.status|lower}}">{{r.status}}</span>{% if r.reviewer_name %}<small class="cellSub">Por {{r.reviewer_name}}</small>{% endif %}</td>
+      <td>{% if session.get('role')=='admin' and r.status=='PENDIENTE' %}<div class="requestActions"><form method="post" action="{{url_for('resolve_registration_request',request_id=r.id)}}"><input type="hidden" name="decision" value="APROBADA"><button class="approveBtn">Aprobar y registrar</button></form><form method="post" action="{{url_for('resolve_registration_request',request_id=r.id)}}"><input type="hidden" name="decision" value="RECHAZADA"><button class="rejectBtn">Rechazar</button></form></div>{% else %}<span class="muted">Gestionada</span>{% endif %}</td>
+    </tr>
+    {% else %}<tr><td colspan="9" class="emptyCell">No hay solicitudes para este alcance.</td></tr>{% endfor %}
+  </table></div>
+</section>
+{% endblock %}

@@ -1,0 +1,71 @@
+PDR · CUENTAS OPERATIVAS POR SEDE
+=======================================================
+
+Administrador general
+Usuario: admin@idat.edu.pe
+Contraseña: admin123
+
+IMPORTANTE: cada cuenta solo ve su instituto y sede. Cambia las contraseñas antes de usar el sistema en producción.
+
+######## IDAT SJM ########
+Comercial | COM-IDAT-SJM-01 | comercial.idat.sur@pdr.local | ComIdatSur1
+SAE | SAE-IDAT-SJM-01 | sae02@pdr.local | SAE02
+SAE | SAE-IDAT-SJM-02 | sae12@pdr.local | SAE12
+Seguridad | SEG-IDAT-SJM-01 | seguridad02@pdr.local | Seguridad02
+Seguridad | SEG-IDAT-SJM-02 | seguridad12@pdr.local | Seguridad12
+
+######## IDAT SJL ########
+Comercial | COM-IDAT-SJL-01 | comercial.idat.norte@pdr.local | ComIdatNorte1
+SAE | SAE-IDAT-SJL-01 | sae04@pdr.local | SAE04
+SAE | SAE-IDAT-SJL-02 | sae14@pdr.local | SAE14
+Seguridad | SEG-IDAT-SJL-01 | seguridad04@pdr.local | Seguridad04
+Seguridad | SEG-IDAT-SJL-02 | seguridad14@pdr.local | Seguridad14
+
+######## IDAT ATE ########
+Comercial | COM-IDAT-ATE-01 | comercial.idat.este@pdr.local | ComIdatEste1
+SAE | SAE-IDAT-ATE-01 | sae05@pdr.local | SAE05
+SAE | SAE-IDAT-ATE-02 | sae15@pdr.local | SAE15
+Seguridad | SEG-IDAT-ATE-01 | seguridad05@pdr.local | Seguridad05
+Seguridad | SEG-IDAT-ATE-02 | seguridad15@pdr.local | Seguridad15
+
+######## IDAT PT ########
+Comercial | COM-IDAT-PT-01 | comercial@idat.edu.pe | comercial123
+SAE | SAE-IDAT-PT-01 | sae@idat.edu.pe | sae123
+SAE | SAE-IDAT-PT-02 | sae11@pdr.local | SAE11
+Seguridad | SEG-IDAT-PT-01 | seguridad@idat.edu.pe | seguridad123
+Seguridad | SEG-IDAT-PT-02 | seguridad11@pdr.local | Seguridad11
+
+######## IDAT TV ########
+Comercial | COM-IDAT-TV-01 | comercial.idat.centro2@pdr.local | ComIdatCentro21
+SAE | SAE-IDAT-TV-01 | sae03@pdr.local | SAE03
+SAE | SAE-IDAT-TV-02 | sae13@pdr.local | SAE13
+Seguridad | SEG-IDAT-TV-01 | seguridad03@pdr.local | Seguridad03
+Seguridad | SEG-IDAT-TV-02 | seguridad13@pdr.local | Seguridad13
+
+######## ZEGEL SJM ########
+Comercial | COM-ZEGEL-SJM-01 | comercial.zegel.centro@pdr.local | ComZegelCentro1
+Comercial | COM-ZEGEL-SJM-02 | comercial.zegel.sur@pdr.local | ComZegelSur1
+SAE | SAE-ZEGEL-SJM-01 | sae06@pdr.local | SAE06
+SAE | SAE-ZEGEL-SJM-02 | sae07@pdr.local | SAE07
+SAE | SAE-ZEGEL-SJM-03 | sae16@pdr.local | SAE16
+SAE | SAE-ZEGEL-SJM-04 | sae17@pdr.local | SAE17
+Seguridad | SEG-ZEGEL-SJM-01 | seguridad06@pdr.local | Seguridad06
+Seguridad | SEG-ZEGEL-SJM-02 | seguridad07@pdr.local | Seguridad07
+
+######## ZEGEL SJL ########
+Comercial | COM-ZEGEL-SJL-01 | comercial.zegel.centro2@pdr.local | ComZegelCentro21
+Comercial | COM-ZEGEL-SJL-02 | comercial.zegel.norte@pdr.local | ComZegelNorte1
+SAE | SAE-ZEGEL-SJL-01 | sae08@pdr.local | SAE08
+SAE | SAE-ZEGEL-SJL-02 | sae09@pdr.local | SAE09
+SAE | SAE-ZEGEL-SJL-03 | sae18@pdr.local | SAE18
+SAE | SAE-ZEGEL-SJL-04 | sae19@pdr.local | SAE19
+Seguridad | SEG-ZEGEL-SJL-01 | seguridad08@pdr.local | Seguridad08
+Seguridad | SEG-ZEGEL-SJL-02 | seguridad09@pdr.local | Seguridad09
+
+######## ZEGEL ATE ########
+Comercial | COM-ZEGEL-ATE-01 | comercial.zegel.este@pdr.local | ComZegelEste1
+SAE | SAE-ZEGEL-ATE-01 | sae10@pdr.local | SAE10
+SAE | SAE-ZEGEL-ATE-02 | sae20@pdr.local | SAE20
+Seguridad | SEG-ZEGEL-ATE-01 | seguridad10@pdr.local | Seguridad10
+
+Los nombres, correos, contraseñas, roles y sedes se pueden modificar desde Administración > Gestión de usuarios.

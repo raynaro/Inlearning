@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card consult scanMode">
+  <div class="sectionHead"><div><h2>Registro de docente</h2><p>Consulta separada por instituto y sede.</p></div><span class="scopeTag">{{institute}} {{campus}}</span></div>
+  <form method="post" class="search scaleSearchForm">
+    {% if session.get('role')=='admin' %}<select name="institute" required>{% for inst in institutes %}<option value="{{inst}}" {% if institute==inst %}selected{% endif %}>{{inst}}</option>{% endfor %}</select><select name="campus" required>{% for sede in campuses %}<option value="{{sede}}" {% if campus==sede %}selected{% endif %}>{{sede}}</option>{% endfor %}</select>{% endif %}
+    <input name="q" placeholder="DNI del docente" required autofocus><input name="note" placeholder="Observación opcional"><button>Registrar ingreso</button>
+  </form>
+  {% if q %}{% if result and result.active %}<div class="result ok"><div class="avatar">🏫</div><div><span class="badge activo">ACTIVO</span><h3>{{result.name}}</h3><p>{{result.institute}} {{result.campus}} · {{result.area or 'Sin área'}}</p></div></div>{% else %}<div class="result bad"><div class="avatar red">🏫</div><div><span class="badge inactivo">INACTIVO</span><h3>Docente no habilitado en esta sede</h3><p>{{institute}} {{campus}}</p></div></div>{% endif %}{% endif %}
+</section>
+{% endblock %}

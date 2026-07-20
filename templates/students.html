@@ -1,0 +1,9 @@
+{% extends 'base.html' %}
+{% block content %}
+<header class="pageHeaderScale"><div><span class="heroLabel darkLabel">🎓 BASES DE ALUMNOS</span><h1>Alumnos IDAT y ZEGEL por sede</h1><p>Cada base se mantiene activa de forma independiente.</p></div><a class="btn" href="{{url_for('dashboard')}}#importar">Importar base</a></header>
+<section class="card">
+  <form method="get" class="userFilters scaleUserFilters"><input name="q" value="{{q}}" placeholder="Nombre, DNI o código"><select name="institute"><option value="">Todos los institutos</option>{% for inst in institutes %}<option value="{{inst}}" {% if institute==inst %}selected{% endif %}>{{inst}}</option>{% endfor %}</select><select name="campus"><option value="">Todas las sedes</option>{% for sede in campuses %}<option value="{{sede}}" {% if campus==sede %}selected{% endif %}>{{sede}}</option>{% endfor %}</select><button>Filtrar</button><a class="btn secondary" href="{{url_for('students')}}">Limpiar</a></form>
+  <div class="branchMiniSummary">{% for s in summary %}<a href="{{url_for('students',institute=s.institute,campus=s.campus)}}"><span class="instituteBadge institute{{s.institute|lower}}">{{s.institute}}</span><b>{{s.campus}}</b><strong>{{s.total}}</strong></a>{% endfor %}</div>
+  <div class="tableWrap"><table><tr><th>Alumno</th><th>DNI</th><th>Código</th><th>Instituto</th><th>Sede</th><th>Fecha ingreso</th><th>Estado</th></tr>{% for s in students %}<tr><td><b>{{s.name}}</b></td><td>{{s.dni}}</td><td>{{s.code}}</td><td><span class="instituteBadge institute{{s.institute|lower}}">{{s.institute}}</span></td><td>{{s.campus}}</td><td>{{s.entry_date or '-'}}</td><td><span class="badge {{'activo' if s.active else 'inactivo'}}">{{'ACTIVO' if s.active else 'INACTIVO'}}</span></td></tr>{% else %}<tr><td colspan="7" class="emptyCell">No hay alumnos en este filtro.</td></tr>{% endfor %}</table></div>
+</section>
+{% endblock %}

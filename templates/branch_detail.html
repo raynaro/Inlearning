@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block content %}
+<header class="top adminHero proHero multiHero">
+  <div><span class="heroLabel">📍 CONTROL DE SEDE</span><h1><span class="instituteBadge institute{{institute|lower}}">{{institute}}</span> {{campus}}</h1><p class="heroScopeText">Seguridad, SAE, Comercial y las solicitudes de registro trabajan únicamente con los datos de esta sede.</p></div>
+  <div class="heroButtons"><a class="btn lightBtn" href="{{url_for('branches')}}">Todas las sedes</a><a class="btn lightBtn" href="{{url_for('users',institute=institute,campus=campus)}}">Usuarios</a><a class="btn lightBtn" href="{{url_for('students',institute=institute,campus=campus)}}">Alumnos</a></div>
+</header>
+
+<section class="grid4 adminStats multiStats">
+  <div class="stat"><span class="statIcon">🎓</span><b>{{stats.students}}</b><span>Alumnos activos</span></div>
+  <div class="stat"><span class="statIcon">👥</span><b>{{stats.users}}</b><span>Usuarios activos</span></div>
+  <div class="stat"><span class="statIcon">🚶</span><b>{{stats.visits_today}}</b><span>Visitas de hoy</span></div>
+  <div class="stat"><span class="statIcon">⏳</span><b>{{stats.pending}}</b><span>Visitas nuevas</span></div>
+  <div class="stat"><span class="statIcon">✅</span><b>{{stats.attended}}</b><span>Atendidas</span></div>
+  <div class="stat"><span class="statIcon">📥</span><b>{{stats.registration_requests}}</b><span>Solicitudes pendientes</span></div>
+</section>
+
+<section class="card branchActionsCard">
+  <div class="sectionHead"><div><h3>Acciones de la sede</h3><p>Todos los enlaces conservan el filtro de {{institute}} {{campus}}.</p></div><span>Acceso rápido</span></div>
+  <div class="branchActionGrid">
+    <a href="{{url_for('users',institute=institute,campus=campus)}}">👥 Gestionar personal</a>
+    <a href="{{url_for('students',institute=institute,campus=campus)}}">🎓 Ver alumnos</a>
+    <a href="{{url_for('visitors',institute=institute,campus=campus)}}">🚶 Ver visitas</a>
+    <a href="{{url_for('logs',institute=institute,campus=campus)}}">🧾 Ver registros</a>
+    <a href="{{url_for('registration_requests',institute=institute,campus=campus)}}">📥 Solicitudes de esta sede</a>
+    <a href="{{url_for('new_registration_request',institute=institute,campus=campus)}}">➕ Nueva solicitud</a>
+    <a href="{{url_for('export_visits_excel',institute=institute,campus=campus,days=30)}}">📊 Exportar visitas</a>
+    <a href="{{url_for('export_registration_requests',institute=institute,campus=campus)}}">📥 Exportar solicitudes</a>
+    <a href="{{url_for('export_excel',institute=institute,campus=campus,days=30)}}">📄 Exportar alumnos</a>
+  </div>
+</section>
+
+<section class="card branchRequestsCard">
+  <div class="sectionHead"><div><h3>📥 Solicitudes de registro de {{institute}} {{campus}}</h3><p>Bandeja exclusiva para altas de alumnos y docentes de esta sede.</p></div><a class="btn" href="{{url_for('registration_requests',institute=institute,campus=campus)}}">Abrir bandeja completa</a></div>
+  <div class="tableWrap"><table><tr><th>Fecha</th><th>Tipo</th><th>Persona</th><th>DNI / Código</th><th>Solicitó</th><th>Estado</th></tr>
+    {% for r in branch_requests %}<tr><td>{{r.created_at[0:16]|replace('T',' ')}}</td><td><span class="accountCode">{{r.request_type}}</span></td><td><b>{{r.full_name}}</b></td><td>{{r.dni}} / {{r.code or '-'}}</td><td>{{r.requester_name or '-'}}</td><td><span class="badge request{{r.status|lower}}">{{r.status}}</span></td></tr>{% else %}<tr><td colspan="6" class="emptyCell">Esta sede todavía no tiene solicitudes.</td></tr>{% endfor %}
+  </table></div>
+</section>
+
+<section class="adminActivitySection">
+  <div class="sectionHead adminActivityTitle"><div><h2>📈 Actividad de esta sede</h2><p>Visitas y atenciones de SAE y Comercial.</p></div><span>7 / 30 días</span></div>
+  <div class="adminActivityGrid">
+    {% for area in ['SAE','COMERCIAL'] %}
+    <section class="activityChartCard branchActivityCard" data-area="{{area}}">
+      <div class="activityChartHeader"><div><h3>{{area}}</h3><p>{{institute}} {{campus}}</p></div><div class="periodTabs"><button type="button" class="periodTab is-active" data-days="7">7 días</button><button type="button" class="periodTab" data-days="30">30 días</button></div></div>
+      <div class="activityChartSummary"><span><b class="activityVisitsTotal">0</b> visitas</span><span><b class="activityAttendedTotal">0</b> atendidos</span></div>
+      <div class="activityCanvasWrap"><canvas class="activityChartCanvas"></canvas></div>
+    </section>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="layout adminLayout">
+  <div class="card professionalTable">
+    <div class="sectionHead"><h3>Personal asignado</h3><a class="btn secondary" href="{{url_for('register')}}">+ Cuenta</a></div>
+    <div class="tableWrap"><table><tr><th>Código</th><th>Nombre</th><th>Rol</th><th>Estado</th><th></th></tr>
+      {% for u in branch_users %}<tr><td><span class="accountCode">{{u.account_code or 'MANUAL'}}</span></td><td><b>{{u.name}}</b><small class="cellSub">{{u.email}}</small></td><td>{{roles.get(u.role,u.role)}}</td><td><span class="badge {{'activo' if u.active else 'inactivo'}}">{{'ACTIVO' if u.active else 'INACTIVO'}}</span></td><td><a class="btn editSmall" href="{{url_for('edit_user',user_id=u.id)}}">Editar</a></td></tr>{% else %}<tr><td colspan="5" class="emptyCell">Sin usuarios asignados.</td></tr>{% endfor %}
+    </table></div>
+  </div>
+  <div class="card professionalTable">
+    <div class="sectionHead"><h3>Últimas visitas</h3><a class="btn secondary" href="{{url_for('visitors',institute=institute,campus=campus)}}">Ver todas</a></div>
+    <div class="tableWrap"><table><tr><th>Fecha</th><th>Área</th><th>Persona</th><th>Registró</th><th>Status</th></tr>
+      {% for v in branch_visits %}<tr><td>{{v.created_at[0:16]|replace('T',' ')}}</td><td>{{v.destination_area}}</td><td><b>{{v.full_name}}</b></td><td>{{v.registered_by or '-'}}</td><td><span class="badge {% if v.visit_status=='ATENDIDO' %}activo{% elif v.visit_status=='NO ATENDIDO' %}inactivo{% else %}area{% endif %}">{{v.visit_status}}</span></td></tr>{% else %}<tr><td colspan="5" class="emptyCell">Sin visitas.</td></tr>{% endfor %}
+    </table></div>
+  </div>
+</section>
+
+<script>
+(function(){const data={{branch_charts|tojson}};document.querySelectorAll('.branchActivityCard').forEach(card=>{const ctx=card.querySelector('canvas').getContext('2d'),canvas=card.querySelector('canvas'),tabs=[...card.querySelectorAll('.periodTab')];let days='7';function draw(){const d=data[card.dataset.area][days],w=canvas.parentElement.clientWidth||500,h=280,r=Math.min(devicePixelRatio||1,2);canvas.width=w*r;canvas.height=h*r;canvas.style.width=w+'px';canvas.style.height=h+'px';ctx.setTransform(r,0,0,r,0,0);ctx.clearRect(0,0,w,h);card.querySelector('.activityVisitsTotal').textContent=d.total_visits;card.querySelector('.activityAttendedTotal').textContent=d.total_attended;const p=38,base=h-38,max=Math.max(4,...d.visits,...d.attended),step=(w-p-12)/Math.max(d.visits.length-1,1);ctx.strokeStyle='#edf1f7';for(let i=0;i<5;i++){const y=18+(base-18)*i/4;ctx.beginPath();ctx.moveTo(p,y);ctx.lineTo(w-12,y);ctx.stroke()}function line(vals,color){ctx.beginPath();vals.forEach((v,i)=>{const x=p+i*step,y=base-(v/max)*(base-18);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.strokeStyle=color;ctx.lineWidth=3;ctx.stroke()}line(d.visits,'#3b82f6');line(d.attended,'#10b981')}tabs.forEach(t=>t.onclick=()=>{days=t.dataset.days;tabs.forEach(x=>x.classList.toggle('is-active',x===t));draw()});window.addEventListener('resize',draw);draw()})})();
+</script>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card visitorsPageCard">
+  <div class="sectionHead visitorsHead">
+    <div><div class="sectionBrand"><strong>PDR</strong><span>Plataforma de Registro</span></div><h2>Visitas {{area_actual or 'de todas las áreas'}}</h2><p>{% if session.get('role')=='admin' %}Control administrativo por instituto y sede.{% else %}Solo se muestran visitas de <b>{{institute}} {{campus}}</b>.{% endif %}</p></div>
+    <a class="btn" href="{{url_for('export_visits_excel',institute=institute,campus=campus,area=area_actual,days=30)}}">📊 Exportar Excel</a>
+  </div>
+
+  <form class="visitFilters scaleVisitFilters" method="get">
+    {% if session.get('role')=='admin' %}
+      <select name="institute"><option value="">Todos los institutos</option>{% for inst in institutes %}<option value="{{inst}}" {% if institute==inst %}selected{% endif %}>{{inst}}</option>{% endfor %}</select>
+      <select name="campus"><option value="">Todas las sedes</option>{% for sede in campuses %}<option value="{{sede}}" {% if campus==sede %}selected{% endif %}>{{sede}}</option>{% endfor %}</select>
+      <select name="area"><option value="">Todas las áreas</option><option value="SAE" {% if area_actual=='SAE' %}selected{% endif %}>SAE</option><option value="COMERCIAL" {% if area_actual=='COMERCIAL' %}selected{% endif %}>Comercial</option></select>
+    {% endif %}
+    <select name="status"><option value="">Todos los status</option><option value="NUEVA" {% if status_filter=='NUEVA' %}selected{% endif %}>Visita nueva</option><option value="ATENDIDO" {% if status_filter=='ATENDIDO' %}selected{% endif %}>Atendido</option><option value="NO ATENDIDO" {% if status_filter=='NO ATENDIDO' %}selected{% endif %}>No atendido</option></select>
+    <button>Aplicar filtros</button><a href="{{url_for('visitors')}}">Limpiar</a>
+  </form>
+
+  <div class="scopeBanner"><span>🏢 {{branch_label(institute,campus) if institute or campus else 'Todos los institutos y sedes'}}</span><span>🎯 {{area_actual or 'SAE + Comercial'}}</span><span>📋 {{visitors|length}} registros visibles</span></div>
+
+  <div class="tableWrap"><table class="visitsTable">
+    <tr><th>Orden</th><th>Fecha</th><th>Instituto</th><th>Sede</th><th>Visitante</th><th>DNI</th><th>Teléfono</th><th>Área</th><th>Motivo</th><th>Registró</th><th>Atendió</th><th>Status de visita</th></tr>
+    {% for v in visitors %}
+    <tr class="visitRow {% if v.visit_status=='ATENDIDO' %}doneVisit{% elif v.visit_status=='NO ATENDIDO' %}pendingVisit{% else %}newVisit{% endif %}">
+      <td><span class="orderBadge">{{loop.index}}</span></td><td class="visitDate"><strong>{{v.created_at[0:10]}}</strong><small>{{v.created_at[11:16]}}</small></td><td><span class="instituteBadge institute{{v.institute|lower}}">{{v.institute}}</span></td><td><b>{{v.campus}}</b></td><td><b>{{v.full_name}}</b></td><td>{{v.dni}}</td><td>{{v.phone or '-'}}</td><td><span class="badge area">{{v.destination_area}}</span></td><td>{{v.reason or '-'}}</td><td>{{v.registered_by or '-'}}</td><td>{{v.attended_by or v.status_updated_by or '-'}}</td>
+      <td><form method="post" action="{{url_for('update_visit_status',visit_id=v.id)}}" class="statusForm"><input type="hidden" name="return_status" value="{{status_filter}}"><select name="estado" class="estadoSelect {% if v.visit_status=='ATENDIDO' %}estadoOk{% elif v.visit_status=='NO ATENDIDO' %}estadoPendiente{% else %}estadoNueva{% endif %}" onchange="this.form.submit()"><option value="NUEVA" {% if v.visit_status=='NUEVA' %}selected{% endif %}>Visita nueva</option><option value="ATENDIDO" {% if v.visit_status=='ATENDIDO' %}selected{% endif %}>Atendido</option><option value="NO ATENDIDO" {% if v.visit_status=='NO ATENDIDO' %}selected{% endif %}>No atendido</option></select></form></td>
+    </tr>
+    {% else %}<tr><td colspan="12" class="emptyState">No hay visitas en este instituto, sede o filtro.</td></tr>{% endfor %}
+  </table></div>
+</section>
+
+{% if sonido_area %}
+<script>
+(function(){let last={{ultimo_id|int}},started=false;function beep(){try{const a=new(window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator(),g=a.createGain();o.connect(g);g.connect(a.destination);o.frequency.value=880;g.gain.value=.12;o.start();o.stop(a.currentTime+.28)}catch(e){}}document.addEventListener('click',()=>started=true,{once:true});setInterval(async()=>{try{const r=await fetch('{{url_for("visitas_estado")}}?since='+last);const d=await r.json();if(d.ultimo>last){if(started)beep();last=d.ultimo;setTimeout(()=>location.reload(),700)}}catch(e){}},5000)})();
+</script>
+{% endif %}
+{% endblock %}
