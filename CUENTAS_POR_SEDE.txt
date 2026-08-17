@@ -1,0 +1,18 @@
+RIVA · ESTRUCTURA DE ACCESO
+=======================================================
+
+Administrador general
+Usuario: admin@idat.edu.pe
+Contraseña: admin123
+
+NUEVA ESTRUCTURA
+- Marca: IDAT o ZEGEL
+- Sede Lima Sur  = código interno SJM
+- Sede Lima Este = código interno ATE
+- Sede Lima Norte = código interno SJL
+
+IMPORTANTE
+Las cuentas SAE y Comercial trabajan por sede física consolidada y pueden visualizar visitas de ambas marcas (IDAT + ZEGEL) en esa sede.
+Seguridad selecciona la Marca al momento de registrar.
+
+Los nombres, correos, contraseñas, roles, Marca y sede se pueden modificar desde Administración > Gestión de usuarios.
