@@ -1,0 +1,2125 @@
+import os
+import sqlite3
+from datetime import datetime, timedelta
+from functools import wraps
+from zoneinfo import ZoneInfo
+
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    from psycopg2 import IntegrityError as PostgresIntegrityError
+except Exception:
+    psycopg2 = None
+    RealDictCursor = None
+    PostgresIntegrityError = Exception
+
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, jsonify
+from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
+from openpyxl import load_workbook, Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+DB = os.path.join(APP_DIR, 'database.db')
+DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
+USE_POSTGRES = bool(DATABASE_URL)
+UPLOADS = os.path.join(APP_DIR, 'uploads')
+BASE_XLSX = os.path.join(APP_DIR, 'base.xlsx')
+TEACHERS_XLSX = os.path.join(APP_DIR, 'base_docentes.xlsx')
+TZ = ZoneInfo('America/Lima')
+os.makedirs(UPLOADS, exist_ok=True)
+
+app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY', 'cambia-esta-clave-en-produccion')
+
+ROLES = {
+    'admin': 'Administrador',
+    'sae': 'SAE',
+    'commercial': 'Comercial',
+    'security': 'Seguridad',
+    'display': 'Pantalla TV',
+}
+AREAS = ('SAE', 'COMERCIAL')
+INSTITUTES = ('IDAT', 'ZEGEL')  # Internamente: marca
+CAMPUSES = ('SJM', 'ATE', 'SJL')      # Internamente: código de sede física
+BRANCH_CAMPUSES = {
+    'IDAT': CAMPUSES,
+    'ZEGEL': CAMPUSES,
+}
+BRANCHES = tuple((inst, campus) for inst in INSTITUTES for campus in BRANCH_CAMPUSES[inst])
+
+SITE_LABELS = {
+    'SJM': 'Lima Sur',
+    'ATE': 'Lima Este',
+    'SJL': 'Lima Norte',
+}
+
+CAMPUS_CODES = {
+    'SJM': 'LIMA_SUR',
+    'ATE': 'LIMA_ESTE',
+    'SJL': 'LIMA_NORTE',
+}
+
+
+class DBCursor:
+    def __init__(self, cursor):
+        self.cursor = cursor
+
+    def _sql(self, sql):
+        return sql.replace('?', '%s') if USE_POSTGRES else sql
+
+    def execute(self, sql, params=()):
+        self.cursor.execute(self._sql(sql), params)
+        return self
+
+    def fetchone(self):
+        return self.cursor.fetchone()
+
+    def fetchall(self):
+        return self.cursor.fetchall()
+
+
+class DBConn:
+    def __init__(self):
+        if USE_POSTGRES:
+            if psycopg2 is None:
+                raise RuntimeError('Falta instalar psycopg2-binary para usar PostgreSQL.')
+            self.raw = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+        else:
+            self.raw = sqlite3.connect(DB)
+            self.raw.row_factory = sqlite3.Row
+
+    def cursor(self):
+        return DBCursor(self.raw.cursor())
+
+    def execute(self, sql, params=()):
+        return self.cursor().execute(sql, params)
+
+    def commit(self):
+        self.raw.commit()
+
+    def rollback(self):
+        self.raw.rollback()
+
+    def close(self):
+        self.raw.close()
+
+
+def conn():
+    return DBConn()
+
+
+DBIntegrityError = (sqlite3.IntegrityError, PostgresIntegrityError)
+
+
+def now_dt():
+    return datetime.now(TZ)
+
+
+def now_iso():
+    return now_dt().isoformat(timespec='seconds')
+
+
+def today_lima():
+    return now_dt().date().isoformat()
+
+
+def normalize_header(value):
+    return str(value or '').strip().lower().replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
+
+
+def only_digits(value):
+    return ''.join(ch for ch in str(value or '').replace('.0', '') if ch.isdigit())
+
+
+def normalize_institute(value, default=''):
+    value = str(value or '').strip().upper()
+    return value if value in INSTITUTES else default
+
+
+def normalize_campus(value, default=''):
+    value = str(value or '').strip().upper().replace('  ', ' ')
+    aliases = {
+        'SAN JUAN DE MIRAFLORES': 'SJM',
+        'LIMA SUR': 'SJM',
+        'SUR': 'SJM',
+        'SAN JUAN DE LURIGANCHO': 'SJL',
+        'LIMA NORTE': 'SJL',
+        'NORTE': 'SJL',
+        'LIMA ESTE': 'ATE',
+        'ESTE': 'ATE',
+    }
+    value = aliases.get(value, value)
+    return value if value in CAMPUSES else default
+
+
+def campus_label(campus):
+    campus = normalize_campus(campus)
+    return SITE_LABELS.get(campus, str(campus or '').strip())
+
+
+def brand_label(institute):
+    institute = normalize_institute(institute)
+    return 'Inlearning'
+
+
+def valid_branch(institute, campus):
+    return (institute, campus) in BRANCHES
+
+
+def normalize_branch(institute, campus, default_institute='', default_campus=''):
+    institute = normalize_institute(institute, default_institute)
+    campus = normalize_campus(campus, default_campus)
+    if institute and campus and valid_branch(institute, campus):
+        return institute, campus
+    if default_institute and default_campus and valid_branch(default_institute, default_campus):
+        return default_institute, default_campus
+    return institute, ''
+
+
+def branch_label(institute, campus):
+    institute = normalize_institute(institute)
+    campus = normalize_campus(campus)
+    if institute and campus:
+        return f'Marca {institute} · Campus {campus_label(campus)}'
+    if campus:
+        return f'Inlearning · Campus {campus_label(campus)}'
+    if institute:
+        return f'Marca {institute}'
+    return 'Todos los campus Inlearning'
+
+
+def session_scope():
+    return normalize_institute(session.get('institute')), normalize_campus(session.get('campus'))
+
+
+def scoped_user():
+    return session.get('role') != 'admin'
+
+
+def scope_filter(alias='', institute='', campus=''):
+    prefix = f'{alias}.' if alias else ''
+    conditions = []
+    params = []
+    if institute in INSTITUTES and campus in CAMPUSES and not valid_branch(institute, campus):
+        return ['1=0'], []
+    if institute in INSTITUTES:
+        conditions.append(f'{prefix}institute=?')
+        params.append(institute)
+    if campus in CAMPUSES:
+        conditions.append(f'{prefix}campus=?')
+        params.append(campus)
+    return conditions, params
+
+
+def audit(action, target_type='', target_id=None, detail=''):
+    if not session.get('user_id'):
+        return
+    c = conn()
+    c.execute('''INSERT INTO audit_logs(admin_user_id,action,target_type,target_id,detail,created_at)
+                 VALUES(?,?,?,?,?,?)''',
+              (session.get('user_id'), action, target_type, target_id, detail, now_iso()))
+    c.commit(); c.close()
+
+
+def ensure_column(cur, table, column, definition):
+    if USE_POSTGRES:
+        row = cur.execute('''SELECT column_name FROM information_schema.columns
+                             WHERE table_name=? AND column_name=?''', (table, column)).fetchone()
+        if not row:
+            cur.execute(f'ALTER TABLE {table} ADD COLUMN {column} {definition}')
+    else:
+        cols = [r['name'] for r in cur.execute(f'PRAGMA table_info({table})').fetchall()]
+        if column not in cols:
+            cur.execute(f'ALTER TABLE {table} ADD COLUMN {column} {definition}')
+
+
+def create_index(cur, name, table, columns):
+    try:
+        cur.execute(f'CREATE INDEX IF NOT EXISTS {name} ON {table}({columns})')
+    except Exception:
+        pass
+
+
+def migrate_legacy_scopes(cur):
+    """Convierte valores antiguos a Marca + sede física consolidada."""
+    idat_map = {
+        'LIMA SUR': 'SJM', 'LIMA NORTE': 'SJL', 'LIMA ESTE': 'ATE',
+        'LIMA CENTRO': 'PT', 'LIMA CENTRO 2': 'TV',
+    }
+    zegel_map = {
+        'LIMA SUR': 'SJM', 'LIMA NORTE': 'SJL', 'LIMA ESTE': 'ATE',
+        'LIMA CENTRO': 'SJM', 'LIMA CENTRO 2': 'SJL', 'PT': 'SJM', 'TV': 'SJL',
+    }
+    specs = [
+        ('users', 'institute', 'campus'), ('students', 'institute', 'campus'),
+        ('teachers', 'institute', 'campus'), ('visitors', 'institute', 'campus'),
+        ('registration_requests', 'institute', 'campus'),
+        ('access_logs', 'registered_institute', 'registered_campus'),
+        ('access_logs', 'student_institute', 'student_campus'),
+        ('teacher_logs', 'registered_institute', 'registered_campus'),
+        ('teacher_logs', 'teacher_institute', 'teacher_campus'),
+    ]
+    for table, inst_col, campus_col in specs:
+        try:
+            rows = cur.execute(f'SELECT id,{inst_col} institute_value,{campus_col} campus_value FROM {table}').fetchall()
+        except Exception:
+            continue
+        for row in rows:
+            raw_campus = str(row['campus_value'] or '').strip().upper()
+            # Las cuentas operativas Inlearning son deliberadamente mixtas: campus sí, marca no.
+            if table == 'users' and not str(row['institute_value'] or '').strip() and normalize_campus(raw_campus):
+                continue
+            institute = normalize_institute(row['institute_value'], 'IDAT')
+            campus = (idat_map if institute == 'IDAT' else zegel_map).get(raw_campus, normalize_campus(raw_campus))
+            if not valid_branch(institute, campus):
+                campus = BRANCH_CAMPUSES[institute][0]
+            cur.execute(f'UPDATE {table} SET {inst_col}=?,{campus_col}=? WHERE id=?', (institute, campus, row['id']))
+
+
+def assign_operational_scopes(cur):
+    """Asigna cada cuenta operativa a una sede oficial y garantiza cobertura mínima."""
+    branch_order = list(BRANCHES)
+
+    primary_emails = {
+        'security': 'seguridad@idat.edu.pe',
+        'sae': 'sae@idat.edu.pe',
+        'commercial': 'comercial@idat.edu.pe',
+    }
+
+    for role in ('security', 'sae', 'commercial'):
+        rows = cur.execute('SELECT id,email,institute,campus FROM users WHERE role=? ORDER BY id', (role,)).fetchall()
+        valid_rows = [r for r in rows if valid_branch(r['institute'], r['campus'])]
+        unassigned = [r for r in rows if not valid_branch(r['institute'], r['campus'])]
+        covered = {(r['institute'], r['campus']) for r in valid_rows}
+
+        primary = next((r for r in unassigned if str(r['email']).lower() == primary_emails[role]), None)
+        if primary:
+            cur.execute('UPDATE users SET institute=?,campus=? WHERE id=?', ('IDAT', 'SJM', primary['id']))
+            covered.add(('IDAT', 'SJM'))
+            unassigned = [r for r in unassigned if r['id'] != primary['id']]
+
+        missing = [branch for branch in branch_order if branch not in covered]
+        for row, branch in zip(unassigned, missing):
+            cur.execute('UPDATE users SET institute=?,campus=? WHERE id=?', (branch[0], branch[1], row['id']))
+            covered.add(branch)
+        extras = unassigned[len(missing):]
+        for index, row in enumerate(extras):
+            branch = branch_order[index % len(branch_order)]
+            cur.execute('UPDATE users SET institute=?,campus=? WHERE id=?', (branch[0], branch[1], row['id']))
+
+        for institute, campus in branch_order:
+            exists = cur.execute('SELECT id FROM users WHERE role=? AND institute=? AND campus=? AND active=1 LIMIT 1',
+                                 (role, institute, campus)).fetchone()
+            if exists:
+                continue
+            campus_code = CAMPUS_CODES[campus].lower()
+            inst_lower = institute.lower()
+            role_prefix = {'security': 'seguridad', 'sae': 'sae', 'commercial': 'comercial'}[role]
+            email = f'{role_prefix}.{inst_lower}.{campus_code}@pdr.local'
+            code_prefix = {'security': 'SEG', 'sae': 'SAE', 'commercial': 'COM'}[role]
+            account_code = f'{code_prefix}-{institute[:3]}-{CAMPUS_CODES[campus]}'
+            password = {
+                'security': f'Seg{institute.title()}{campus}1',
+                'sae': f'Sae{institute.title()}{campus}1',
+                'commercial': f'Com{institute.title()}{campus}1',
+            }[role]
+            name = f'{ROLES[role]} {institute} {campus_label(campus)}'
+            cur.execute('INSERT INTO users(name,email,password,role,account_code,institute,campus,active,created_at) VALUES(?,?,?,?,?,?,?,1,?)',
+                        (name, email, generate_password_hash(password), role, account_code, institute, campus, now_iso()))
+
+
+def normalize_operational_account_codes(cur):
+    """Genera códigos claros y únicos por Marca, sede y rol para la gestión administrativa."""
+    prefixes = {'security': 'SEG', 'sae': 'SAE', 'commercial': 'COM'}
+    for institute, campus in BRANCHES:
+        for role, prefix in prefixes.items():
+            rows = cur.execute('''SELECT id,account_code FROM users
+                                  WHERE role=? AND institute=? AND campus=? ORDER BY id''',
+                               (role, institute, campus)).fetchall()
+            for index, row in enumerate(rows, start=1):
+                current = str(row['account_code'] or '')
+                if not current or current.startswith(('SEG-', 'SAE-', 'COM-')):
+                    code = f'{prefix}-{institute}-{campus}-{index:02d}'
+                    cur.execute('UPDATE users SET account_code=? WHERE id=?', (code, row['id']))
+
+
+
+
+def consolidate_mixed_operational_users(cur):
+    """Deja una sola estructura Inlearning por campus y elimina cuentas legadas por marca."""
+    cur.execute("DELETE FROM users WHERE role IN ('security','sae','commercial','display') AND institute IS NOT NULL")
+    cur.execute("UPDATE users SET institute=NULL,campus=NULL WHERE role='admin'")
+
+    accounts = []
+    campuses = [('ATE', 'Lima Este'), ('SJM', 'Lima Sur'), ('SJL', 'Lima Norte')]
+    for code, label in campuses:
+        accounts.append((f'Seguridad {label}', f'seguridad.{code.lower()}@pdr.local', 'security', f'SEG-{code}-01', code))
+        for n in range(1, 4):
+            accounts.append((f'SAE {label} {n:02d}', f'sae.{code.lower()}.{n:02d}@pdr.local', 'sae', f'SAE-{code}-{n:02d}', code))
+        for n in range(1, 4):
+            accounts.append((f'Comercial {label} {n:02d}', f'comercial.{code.lower()}.{n:02d}@pdr.local', 'commercial', f'COM-{code}-{n:02d}', code))
+        accounts.append((f'Pantalla TV {label}', f'pantalla.{code.lower()}@pdr.local', 'display', f'TV-{code}-01', code))
+
+    for name, email, role, account_code, campus in accounts:
+        row = cur.execute('SELECT id FROM users WHERE lower(email)=?', (email.lower(),)).fetchone()
+        if row:
+            cur.execute("UPDATE users SET name=?,role=?,account_code=?,institute=NULL,campus=?,active=1 WHERE id=?",
+                        (name, role, account_code, campus, row['id']))
+        else:
+            cur.execute("INSERT INTO users(name,email,password,role,account_code,institute,campus,active,created_at) VALUES(?,?,?,?,?,?,?,1,?)",
+                        (name, email, generate_password_hash('Riva1234'), role, account_code, None, campus, now_iso()))
+
+
+def next_operational_account_code(c, role, campus):
+    prefix = {'security': 'SEG', 'sae': 'SAE', 'commercial': 'COM', 'display': 'TV'}.get(role, 'USR')
+    base = f'{prefix}-{campus}-'
+    rows = c.execute('SELECT account_code FROM users WHERE role=? AND campus=?', (role, campus)).fetchall()
+    used = []
+    for row in rows:
+        code = str(row['account_code'] or '')
+        if code.startswith(base):
+            try:
+                used.append(int(code.rsplit('-', 1)[1]))
+            except Exception:
+                pass
+    return f'{base}{(max(used) if used else 0) + 1:02d}'
+
+def record_value(record, key, default=None):
+    try:
+        value = record[key]
+    except Exception:
+        value = getattr(record, key, default)
+    return default if value is None else value
+
+
+def visit_flags(record):
+    attended = 1 if str(record_value(record, 'visit_status', '')).upper() == 'ATENDIDO' or int(record_value(record, 'attended', 0) or 0) == 1 else 0
+    flag_new = int(record_value(record, 'flag_new', 1 if str(record_value(record, 'visit_status', '')).upper() == 'NUEVA' else 0) or 0)
+    flag_in_attention = int(record_value(record, 'flag_in_attention', 1 if str(record_value(record, 'visit_status', '')).upper() == 'NO ATENDIDO' else 0) or 0)
+    if attended:
+        flag_new = 0
+        flag_in_attention = 0
+    return flag_new, flag_in_attention, attended
+
+
+def visit_status_label(record):
+    flag_new, flag_in_attention, attended = visit_flags(record)
+    if attended:
+        return 'Atendido'
+    if flag_new and flag_in_attention:
+        return 'Visita nueva + En atención'
+    if flag_in_attention:
+        return 'En atención'
+    if flag_new:
+        return 'Visita nueva'
+    return 'Pendiente'
+
+
+def visit_status_css(record):
+    flag_new, flag_in_attention, attended = visit_flags(record)
+    if attended:
+        return 'activo'
+    if flag_in_attention:
+        return 'warningStatus'
+    return 'area'
+
+
+def visit_row_css(record):
+    flag_new, flag_in_attention, attended = visit_flags(record)
+    if attended:
+        return 'doneVisit'
+    if flag_in_attention:
+        return 'pendingVisit'
+    return 'newVisit'
+
+
+def build_visit_status_filter(alias, status_filter):
+    prefix = f'{alias}.' if alias else ''
+    clauses = []
+    if 'NUEVA' in status_filter:
+        clauses.append(f'(({prefix}flag_new=1) AND ({prefix}attended=0))')
+    if 'NO ATENDIDO' in status_filter:
+        clauses.append(f'(({prefix}flag_in_attention=1) AND ({prefix}attended=0))')
+    if 'ATENDIDO' in status_filter:
+        clauses.append(f'({prefix}attended=1)')
+    return '(' + ' OR '.join(clauses) + ')' if clauses else ''
+
+
+def next_turn_number(c, campus, destination_area, day_value=None):
+    day_value = day_value or today_lima()
+    row = c.execute("SELECT COALESCE(MAX(turn_number),0) max_turn FROM visitors WHERE campus=? AND destination_area=? AND substr(created_at,1,10)=?",
+                    (campus, destination_area, day_value)).fetchone()
+    return int(record_value(row, 'max_turn', 0) or 0) + 1
+
+
+def module_for_sae_user(c, user_id):
+    user = c.execute('SELECT id,role,campus,account_code,name FROM users WHERE id=?', (user_id,)).fetchone()
+    if not user or record_value(user, 'role') != 'sae' or normalize_campus(record_value(user, 'campus')) not in CAMPUSES:
+        return ''
+    campus = normalize_campus(record_value(user, 'campus'))
+    rows = c.execute("SELECT id FROM users WHERE role='sae' AND active=1 AND campus=? ORDER BY account_code,name,id", (campus,)).fetchall()
+    for index, row in enumerate(rows, start=1):
+        if record_value(row, 'id') == user_id:
+            return f'Módulo {index}'
+    return ''
+
+
+def build_tv_payload(campus):
+    campus = normalize_campus(campus, 'SJM')
+    c = conn()
+    active_rows = c.execute("SELECT v.*,cu.name current_sae_name FROM visitors v LEFT JOIN users cu ON cu.id=v.current_sae_user_id WHERE v.campus=? AND v.destination_area='SAE' AND v.attended=0 AND COALESCE(v.flag_in_attention,0)=1 ORDER BY COALESCE(v.service_module,''), COALESCE(v.status_updated_at,v.created_at) DESC, v.id DESC", (campus,)).fetchall()
+    waiting_rows = c.execute("SELECT v.* FROM visitors v WHERE v.campus=? AND v.destination_area='SAE' AND v.attended=0 AND COALESCE(v.flag_in_attention,0)=0 AND COALESCE(v.flag_new,1)=1 ORDER BY COALESCE(v.turn_number, v.id) ASC LIMIT 12", (campus,)).fetchall()
+    served_today = c.execute("SELECT COUNT(*) n FROM visitors WHERE campus=? AND destination_area='SAE' AND attended=1 AND substr(COALESCE(attended_at,created_at),1,10)=?", (campus, today_lima())).fetchone()['n']
+    c.close()
+    active_cards = []
+    for index, row in enumerate(active_rows, start=1):
+        active_cards.append({'id': record_value(row, 'id'), 'turn_number': record_value(row, 'turn_number') or record_value(row, 'id'), 'full_name': record_value(row, 'full_name', ''), 'service_module': record_value(row, 'service_module', '') or f'Módulo {index}', 'current_sae_name': record_value(row, 'current_sae_name', '') or 'Asesor SAE', 'queue_order': index})
+    waiting_cards = []
+    for index, row in enumerate(waiting_rows, start=1):
+        waiting_cards.append({'id': record_value(row, 'id'), 'turn_number': record_value(row, 'turn_number') or record_value(row, 'id'), 'full_name': record_value(row, 'full_name', ''), 'queue_order': index})
+    return {'campus': campus, 'site_name': campus_label(campus), 'updated_at': now_dt().strftime('%H:%M:%S'), 'active_calls': active_cards, 'waiting': waiting_cards, 'served_today': served_today, 'active_total': len(active_cards), 'waiting_total': len(waiting_cards)}
+
+
+def init_db():
+    c = conn(); cur = c.cursor()
+    id_type = 'SERIAL PRIMARY KEY' if USE_POSTGRES else 'INTEGER PRIMARY KEY AUTOINCREMENT'
+
+    cur.execute(f'''CREATE TABLE IF NOT EXISTS users(
+        id {id_type}, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'security', account_code TEXT, institute TEXT, campus TEXT,
+        active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL
+    )''')
+    cur.execute(f'''CREATE TABLE IF NOT EXISTS students(
+        id {id_type}, name TEXT NOT NULL, dni TEXT NOT NULL, code TEXT NOT NULL UNIQUE,
+        entry_date TEXT, institute TEXT NOT NULL DEFAULT 'IDAT', campus TEXT NOT NULL DEFAULT 'SJM',
+        active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    )''')
+    cur.execute(f'''CREATE TABLE IF NOT EXISTS teachers(
+        id {id_type}, name TEXT NOT NULL, dni TEXT NOT NULL UNIQUE, area TEXT, username TEXT,
+        email TEXT, phone TEXT, institute TEXT NOT NULL DEFAULT 'IDAT', campus TEXT NOT NULL DEFAULT 'SJM',
+        active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    )''')
+    cur.execute(f'''CREATE TABLE IF NOT EXISTS searches(
+        id {id_type}, user_id INTEGER, query TEXT NOT NULL, result TEXT NOT NULL,
+        student_name TEXT, created_at TEXT NOT NULL
+    )''')
+    cur.execute(f'''CREATE TABLE IF NOT EXISTS access_logs(
+        id {id_type}, user_id INTEGER, student_id INTEGER, query TEXT NOT NULL, result TEXT NOT NULL,
+        student_name TEXT, student_dni TEXT, student_code TEXT, student_institute TEXT, student_campus TEXT,
+        registered_institute TEXT, registered_campus TEXT, note TEXT, created_at TEXT NOT NULL
+    )''')
+    cur.execute(f'''CREATE TABLE IF NOT EXISTS teacher_logs(
+        id {id_type}, user_id INTEGER, teacher_id INTEGER, query TEXT NOT NULL, result TEXT NOT NULL,
+        teacher_name TEXT, teacher_dni TEXT, teacher_area TEXT, teacher_institute TEXT, teacher_campus TEXT,
+        registered_institute TEXT, registered_campus TEXT, note TEXT, created_at TEXT NOT NULL
+    )''')
+    cur.execute(f'''CREATE TABLE IF NOT EXISTS visitors(
+        id {id_type}, user_id INTEGER, full_name TEXT NOT NULL, dni TEXT NOT NULL, phone TEXT,
+        destination_area TEXT NOT NULL, visit_type TEXT, reason TEXT,
+        visit_status TEXT NOT NULL DEFAULT 'NUEVA', attended INTEGER NOT NULL DEFAULT 0,
+        flag_new INTEGER NOT NULL DEFAULT 1, flag_in_attention INTEGER NOT NULL DEFAULT 0,
+        turn_number INTEGER, service_module TEXT, current_sae_user_id INTEGER, status_updated_at TEXT,
+        attended_at TEXT, attended_by_user_id INTEGER, status_updated_by_user_id INTEGER,
+        institute TEXT NOT NULL DEFAULT 'IDAT', campus TEXT NOT NULL DEFAULT 'SJM',
+        created_at TEXT NOT NULL
+    )''')
+    cur.execute(f'''CREATE TABLE IF NOT EXISTS visit_archive(
+        id {id_type}, source_key TEXT NOT NULL, created_at TEXT NOT NULL,
+        institute TEXT NOT NULL, campus TEXT NOT NULL, destination_area TEXT NOT NULL,
+        full_name TEXT NOT NULL, dni TEXT NOT NULL, phone TEXT, reason TEXT,
+        visit_status TEXT NOT NULL DEFAULT 'NUEVA', imported_at TEXT NOT NULL
+    )''')
+    create_index(cur, 'idx_visit_archive_date', 'visit_archive', 'created_at')
+    create_index(cur, 'idx_visit_archive_area', 'visit_archive', 'destination_area')
+    cur.execute(f'''CREATE TABLE IF NOT EXISTS audit_logs(
+        id {id_type}, admin_user_id INTEGER, action TEXT NOT NULL, target_type TEXT,
+        target_id INTEGER, detail TEXT, created_at TEXT NOT NULL
+    )''')
+    cur.execute(f'''CREATE TABLE IF NOT EXISTS registration_requests(
+        id {id_type}, requester_user_id INTEGER, request_type TEXT NOT NULL DEFAULT 'ALUMNO',
+        full_name TEXT NOT NULL, dni TEXT NOT NULL, code TEXT, phone TEXT, detail TEXT,
+        institute TEXT NOT NULL DEFAULT 'IDAT', campus TEXT NOT NULL DEFAULT 'SJM',
+        status TEXT NOT NULL DEFAULT 'PENDIENTE', reviewed_by_user_id INTEGER,
+        reviewed_at TEXT, created_at TEXT NOT NULL
+    )''')
+    cur.execute('''CREATE TABLE IF NOT EXISTS app_meta(
+        key TEXT PRIMARY KEY, value TEXT NOT NULL
+    )''')
+
+    # Migraciones sobre proyectos anteriores.
+    ensure_column(cur, 'users', 'role', "TEXT NOT NULL DEFAULT 'security'")
+    ensure_column(cur, 'users', 'account_code', 'TEXT')
+    ensure_column(cur, 'users', 'institute', 'TEXT')
+    ensure_column(cur, 'users', 'campus', 'TEXT')
+    ensure_column(cur, 'users', 'active', 'INTEGER NOT NULL DEFAULT 1')
+    ensure_column(cur, 'students', 'institute', "TEXT NOT NULL DEFAULT 'IDAT'")
+    ensure_column(cur, 'students', 'campus', "TEXT NOT NULL DEFAULT 'SJM'")
+    ensure_column(cur, 'teachers', 'username', 'TEXT')
+    ensure_column(cur, 'teachers', 'email', 'TEXT')
+    ensure_column(cur, 'teachers', 'phone', 'TEXT')
+    ensure_column(cur, 'teachers', 'institute', "TEXT NOT NULL DEFAULT 'IDAT'")
+    ensure_column(cur, 'teachers', 'campus', "TEXT NOT NULL DEFAULT 'SJM'")
+    ensure_column(cur, 'access_logs', 'student_institute', 'TEXT')
+    ensure_column(cur, 'access_logs', 'student_campus', 'TEXT')
+    ensure_column(cur, 'access_logs', 'registered_institute', 'TEXT')
+    ensure_column(cur, 'access_logs', 'registered_campus', 'TEXT')
+    ensure_column(cur, 'teacher_logs', 'teacher_institute', 'TEXT')
+    ensure_column(cur, 'teacher_logs', 'teacher_campus', 'TEXT')
+    ensure_column(cur, 'teacher_logs', 'registered_institute', 'TEXT')
+    ensure_column(cur, 'teacher_logs', 'registered_campus', 'TEXT')
+    ensure_column(cur, 'visitors', 'phone', 'TEXT')
+    ensure_column(cur, 'visitors', 'visit_type', 'TEXT')
+    ensure_column(cur, 'visitors', 'visit_status', "TEXT NOT NULL DEFAULT 'NUEVA'")
+    ensure_column(cur, 'visitors', 'attended', 'INTEGER NOT NULL DEFAULT 0')
+    ensure_column(cur, 'visitors', 'flag_new', 'INTEGER NOT NULL DEFAULT 1')
+    ensure_column(cur, 'visitors', 'flag_in_attention', 'INTEGER NOT NULL DEFAULT 0')
+    ensure_column(cur, 'visitors', 'turn_number', 'INTEGER')
+    ensure_column(cur, 'visitors', 'service_module', 'TEXT')
+    ensure_column(cur, 'visitors', 'current_sae_user_id', 'INTEGER')
+    ensure_column(cur, 'visitors', 'status_updated_at', 'TEXT')
+    ensure_column(cur, 'visitors', 'attended_at', 'TEXT')
+    ensure_column(cur, 'visitors', 'attended_by_user_id', 'INTEGER')
+    ensure_column(cur, 'visitors', 'status_updated_by_user_id', 'INTEGER')
+    ensure_column(cur, 'visitors', 'institute', "TEXT NOT NULL DEFAULT 'IDAT'")
+    ensure_column(cur, 'visitors', 'campus', "TEXT NOT NULL DEFAULT 'SJM'")
+
+    cur.execute("UPDATE users SET role='commercial' WHERE lower(role) IN ('sales','ventas','comercial')")
+    cur.execute("UPDATE visitors SET destination_area='COMERCIAL' WHERE upper(destination_area)='VENTAS'")
+    cur.execute("UPDATE visitors SET visit_status='ATENDIDO' WHERE attended=1 AND (visit_status IS NULL OR visit_status='' OR visit_status='NUEVA')")
+    cur.execute("UPDATE visitors SET visit_status='NUEVA' WHERE visit_status IS NULL OR visit_status=''")
+    cur.execute("UPDATE visitors SET flag_new=1 WHERE (flag_new IS NULL OR flag_new='') AND upper(visit_status)='NUEVA'")
+    cur.execute("UPDATE visitors SET flag_new=0 WHERE flag_new IS NULL")
+    cur.execute("UPDATE visitors SET flag_in_attention=1 WHERE (flag_in_attention IS NULL OR flag_in_attention='') AND upper(visit_status)='NO ATENDIDO'")
+    cur.execute("UPDATE visitors SET flag_in_attention=0 WHERE flag_in_attention IS NULL")
+    cur.execute("UPDATE visitors SET flag_new=0,flag_in_attention=0 WHERE attended=1 OR upper(visit_status)='ATENDIDO'")
+    cur.execute("UPDATE visitors SET turn_number=id WHERE turn_number IS NULL")
+    cur.execute("UPDATE users SET active=1 WHERE active IS NULL")
+    migrate_legacy_scopes(cur)
+    cur.execute("UPDATE access_logs SET student_institute=(SELECT institute FROM students WHERE students.id=access_logs.student_id) WHERE (student_institute IS NULL OR student_institute='') AND student_id IS NOT NULL")
+    cur.execute("UPDATE access_logs SET student_campus=(SELECT campus FROM students WHERE students.id=access_logs.student_id) WHERE (student_campus IS NULL OR student_campus='') AND student_id IS NOT NULL")
+
+    old_commercial = cur.execute('SELECT id FROM users WHERE lower(email)=?', ('ventas@idat.edu.pe',)).fetchone()
+    current_commercial = cur.execute('SELECT id FROM users WHERE lower(email)=?', ('comercial@idat.edu.pe',)).fetchone()
+    if old_commercial and not current_commercial:
+        cur.execute("UPDATE users SET name='Personal Comercial',email='comercial@idat.edu.pe',role='commercial' WHERE id=?", (old_commercial['id'],))
+
+    # La administración es global; las cuentas operativas pertenecen a Inlearning y a un campus.
+    admin_email = 'admin@idat.edu.pe'
+    admin_row = cur.execute('SELECT id FROM users WHERE lower(email)=?', (admin_email,)).fetchone()
+    if not admin_row:
+        cur.execute('''INSERT INTO users(name,email,password,role,account_code,institute,campus,active,created_at)
+                       VALUES(?,?,?,?,?,?,?,1,?)''',
+                    ('Administrador General', admin_email, generate_password_hash('admin123'), 'admin', 'ADM-01', None, None, now_iso()))
+    else:
+        cur.execute("UPDATE users SET role='admin',account_code=COALESCE(account_code,'ADM-01'),institute=NULL,campus=NULL,active=1 WHERE id=?",
+                    (admin_row['id'],))
+
+    migration = cur.execute("SELECT value FROM app_meta WHERE key='inlearning_users_v2'").fetchone()
+    if not migration:
+        consolidate_mixed_operational_users(cur)
+        cur.execute("INSERT INTO app_meta(key,value) VALUES(?,?)", ('inlearning_users_v2', now_iso()))
+    migration_v3 = cur.execute("SELECT value FROM app_meta WHERE key='inlearning_users_v3'").fetchone()
+    if not migration_v3:
+        consolidate_mixed_operational_users(cur)
+        cur.execute("INSERT INTO app_meta(key,value) VALUES(?,?)", ('inlearning_users_v3', now_iso()))
+
+    create_index(cur, 'idx_users_scope', 'users', 'role,institute,campus,active')
+    create_index(cur, 'idx_students_scope', 'students', 'institute,campus,active')
+    create_index(cur, 'idx_students_dni_code', 'students', 'dni,code')
+    create_index(cur, 'idx_visitors_scope', 'visitors', 'institute,campus,destination_area,visit_status')
+    create_index(cur, 'idx_visitors_created', 'visitors', 'created_at')
+    create_index(cur, 'idx_access_scope', 'access_logs', 'registered_institute,registered_campus,created_at')
+    create_index(cur, 'idx_teacher_scope', 'teacher_logs', 'registered_institute,registered_campus,created_at')
+    create_index(cur, 'idx_requests_scope', 'registration_requests', 'institute,campus,status,created_at')
+
+    c.commit(); c.close()
+
+    c = conn(); total = c.execute('SELECT COUNT(*) AS n FROM students').fetchone()['n']; c.close()
+    if total == 0 and os.path.exists(BASE_XLSX):
+        try:
+            import_students_from_excel(BASE_XLSX, forced_institute='IDAT', forced_campus='SJM')
+        except Exception:
+            pass
+    c = conn(); total_teachers = c.execute('SELECT COUNT(*) AS n FROM teachers').fetchone()['n']; c.close()
+    if total_teachers == 0 and os.path.exists(TEACHERS_XLSX):
+        try:
+            import_teachers_from_excel(TEACHERS_XLSX, forced_institute='IDAT', forced_campus='SJM')
+        except Exception:
+            pass
+    purge_old_logs()
+
+
+def purge_old_logs():
+    # Retención ampliada para reportes históricos y operación a mayor escala.
+    limit = (now_dt() - timedelta(days=365)).isoformat(timespec='seconds')
+    c = conn()
+    c.execute('DELETE FROM searches WHERE created_at < ?', (limit,))
+    c.execute('DELETE FROM access_logs WHERE created_at < ?', (limit,))
+    c.execute('DELETE FROM teacher_logs WHERE created_at < ?', (limit,))
+    c.execute('DELETE FROM visitors WHERE created_at < ?', (limit,))
+    c.commit(); c.close()
+
+
+def import_students_from_excel(path, forced_institute=None, forced_campus=None):
+    forced_institute = normalize_institute(forced_institute)
+    forced_campus = normalize_campus(forced_campus)
+    if forced_institute and forced_campus and not valid_branch(forced_institute, forced_campus):
+        raise ValueError('La combinación de Marca y sede no es válida.')
+    wb = load_workbook(path, data_only=True)
+    records = []
+    targets = set()
+
+    def find_index(headers, *names):
+        names = [normalize_header(n) for n in names]
+        return next((headers.index(n) for n in names if n in headers), None)
+
+    for ws in wb.worksheets:
+        headers = [normalize_header(c.value) for c in ws[1]]
+        i_name = find_index(headers, 'NombreCompleto', 'Nombre Completo', 'Nombre', 'Alumno')
+        i_dni = find_index(headers, 'DNI', 'Documento')
+        i_code = find_index(headers, 'Codigo', 'Código', 'Code')
+        i_date = find_index(headers, 'Fecha Ingreso', 'Fecha de Ingreso', 'Fecha')
+        i_inst = find_index(headers, 'MARCA', 'Marca', 'INSTITUTO', 'Instituto', 'Institución', 'Institucion')
+        i_campus = find_index(headers, 'SEDE', 'Sede', 'Campus', 'Local')
+        if i_name is None or i_dni is None or i_code is None:
+            continue
+        title = str(ws.title or '').upper()
+        sheet_inst = next((i for i in INSTITUTES if i in title), '')
+        sheet_campus = next((s for s in CAMPUSES if s in title), '')
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            name = str(row[i_name] or '').strip().upper()
+            dni = only_digits(row[i_dni])
+            code = str(row[i_code] or '').strip().replace('.0', '').upper()
+            entry_date = str(row[i_date] or '').strip() if i_date is not None else now_dt().strftime('%d/%m/%Y')
+            row_inst = normalize_institute(row[i_inst]) if i_inst is not None else ''
+            row_campus = normalize_campus(row[i_campus]) if i_campus is not None else ''
+            institute = forced_institute or row_inst or sheet_inst or 'IDAT'
+            campus = forced_campus or row_campus or sheet_campus or 'SJM'
+            if not name or not dni or not code or not valid_branch(institute, campus):
+                continue
+            records.append((name, dni, code, entry_date, institute, campus))
+            targets.add((institute, campus))
+
+    if not records:
+        raise ValueError('No se encontraron alumnos válidos. El Excel debe incluir Nombre, DNI y Código.')
+
+    c = conn(); cur = c.cursor(); stamp = now_iso()
+    for institute, campus in targets:
+        cur.execute('UPDATE students SET active=0,updated_at=? WHERE institute=? AND campus=?', (stamp, institute, campus))
+    counts = {}
+    for name, dni, code, entry_date, institute, campus in records:
+        cur.execute('''INSERT INTO students(name,dni,code,entry_date,institute,campus,active,created_at,updated_at)
+                       VALUES(?,?,?,?,?,?,1,?,?)
+                       ON CONFLICT(code) DO UPDATE SET name=excluded.name,dni=excluded.dni,
+                       entry_date=excluded.entry_date,institute=excluded.institute,campus=excluded.campus,
+                       active=1,updated_at=excluded.updated_at''',
+                    (name, dni, code, entry_date, institute, campus, stamp, stamp))
+        counts[(institute, campus)] = counts.get((institute, campus), 0) + 1
+    c.commit(); c.close()
+    return counts
+
+
+def import_teachers_from_excel(path, forced_institute=None, forced_campus=None):
+    institute = normalize_institute(forced_institute, 'IDAT')
+    campus = normalize_campus(forced_campus, 'SJM')
+    if not valid_branch(institute, campus):
+        raise ValueError('La combinación de Marca y sede no es válida.')
+    wb = load_workbook(path, data_only=True)
+    ws = wb.active
+    headers = [normalize_header(c.value) for c in ws[1]]
+
+    def find(*names):
+        names = [normalize_header(n) for n in names]
+        return next((headers.index(n) for n in names if n in headers), None)
+
+    i_name = find('NombreCompleto', 'Nombre Completo', 'Nombre', 'Docente')
+    i_dni = find('DNI', 'Documento')
+    i_area = find('Area', 'Área', 'Especialidad', 'Curso', 'Marca')
+    i_user = find('Usuario', 'User')
+    i_email = find('Correo', 'Email', 'E-mail')
+    i_phone = find('Telefono Docente', 'Telefono', 'Teléfono', 'Celular')
+    i_inst = find('Marca', 'Instituto', 'Institución')
+    i_campus = find('Sede', 'Campus', 'Local')
+    if i_name is None or i_dni is None:
+        raise ValueError('El Excel de docentes debe incluir Nombre y DNI.')
+
+    c = conn(); cur = c.cursor(); stamp = now_iso(); count = 0
+    cur.execute('UPDATE teachers SET active=0,updated_at=? WHERE institute=? AND campus=?', (stamp, institute, campus))
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        name = str(row[i_name] or '').strip().upper()
+        dni = only_digits(row[i_dni])
+        if not name or not dni:
+            continue
+        row_inst = normalize_institute(row[i_inst], institute) if i_inst is not None else institute
+        row_campus = normalize_campus(row[i_campus], campus) if i_campus is not None else campus
+        if not valid_branch(row_inst, row_campus):
+            continue
+        area = str(row[i_area] or '').strip().upper() if i_area is not None else ''
+        username = str(row[i_user] or '').strip() if i_user is not None else ''
+        email = str(row[i_email] or '').strip() if i_email is not None else ''
+        phone = only_digits(row[i_phone]) if i_phone is not None else ''
+        cur.execute('''INSERT INTO teachers(name,dni,area,username,email,phone,institute,campus,active,created_at,updated_at)
+                       VALUES(?,?,?,?,?,?,?,?,1,?,?)
+                       ON CONFLICT(dni) DO UPDATE SET name=excluded.name,area=excluded.area,
+                       username=excluded.username,email=excluded.email,phone=excluded.phone,
+                       institute=excluded.institute,campus=excluded.campus,active=1,updated_at=excluded.updated_at''',
+                    (name, dni, area, username, email, phone, row_inst, row_campus, stamp, stamp))
+        count += 1
+    c.commit(); c.close()
+    return count
+
+
+def build_activity_charts(c, area, institute='', campus=''):
+    charts = {}
+    short_days = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+    end_date = now_dt().date()
+    for days in (7, 30):
+        start_date = end_date - timedelta(days=days - 1)
+        conditions = ['destination_area=?', 'substr(created_at,1,10) BETWEEN ? AND ?']
+        params = [area, start_date.isoformat(), end_date.isoformat()]
+        extra, extra_params = scope_filter('', institute, campus)
+        conditions.extend(extra); params.extend(extra_params)
+        sql = ("SELECT substr(created_at,1,10) fecha,institute,COUNT(*) visitas, "
+               "SUM(CASE WHEN attended=1 THEN 1 ELSE 0 END) atendidos FROM visitors WHERE "
+               + ' AND '.join(conditions) +
+               " GROUP BY substr(created_at,1,10),institute ORDER BY fecha,institute")
+        rows = c.execute(sql, tuple(params)).fetchall()
+
+        by_date = {}
+        for r in rows:
+            date_key = r['fecha']
+            bucket = by_date.setdefault(date_key, {'visitas': 0, 'atendidos': 0, 'IDAT': 0, 'ZEGEL': 0})
+            visits = int(r['visitas'] or 0)
+            attended = int(r['atendidos'] or 0)
+            bucket['visitas'] += visits
+            bucket['atendidos'] += attended
+            brand = normalize_institute(r['institute'])
+            if brand in INSTITUTES:
+                bucket[brand] += visits
+
+        labels, full_labels = [], []
+        visits_values, attended_values, idat_values, zegel_values = [], [], [], []
+        for index in range(days):
+            current = start_date + timedelta(days=index)
+            bucket = by_date.get(current.isoformat(), {'visitas': 0, 'atendidos': 0, 'IDAT': 0, 'ZEGEL': 0})
+            labels.append(f'{short_days[current.weekday()]} {current.day:02d}')
+            full_labels.append(current.strftime('%d/%m/%Y'))
+            visits_values.append(int(bucket['visitas']))
+            attended_values.append(int(bucket['atendidos']))
+            idat_values.append(int(bucket['IDAT']))
+            zegel_values.append(int(bucket['ZEGEL']))
+
+        charts[str(days)] = {
+            'labels': labels, 'full_labels': full_labels,
+            'visits': visits_values, 'attended': attended_values,
+            'idat': idat_values, 'zegel': zegel_values,
+            'total_visits': sum(visits_values), 'total_attended': sum(attended_values),
+            'total_idat': sum(idat_values), 'total_zegel': sum(zegel_values),
+        }
+    return charts
+
+
+def login_required(f):
+    @wraps(f)
+    def wrapped(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return wrapped
+
+
+def role_home_endpoint(role):
+    return {'admin': 'dashboard', 'security': 'security_panel', 'sae': 'visitors', 'commercial': 'visitors', 'display': 'tv_board'}.get(role, 'login')
+
+
+def role_required(*roles):
+    def decorator(f):
+        @wraps(f)
+        def wrapped(*args, **kwargs):
+            if session.get('role') not in roles:
+                flash('No tienes permiso para entrar a esa sección.', 'danger')
+                return redirect(url_for(role_home_endpoint(session.get('role'))))
+            return f(*args, **kwargs)
+        return wrapped
+    return decorator
+
+
+def admin_required(f):
+    return role_required('admin')(f)
+
+
+@app.context_processor
+def inject_globals():
+    return dict(roles=ROLES, areas=AREAS, institutes=INSTITUTES, brands=INSTITUTES, campuses=CAMPUSES, branches=BRANCHES, branch_campuses=BRANCH_CAMPUSES, branch_label=branch_label, site_label=campus_label, site_labels=SITE_LABELS, visit_status_label=visit_status_label, visit_status_css=visit_status_css, visit_row_css=visit_row_css)
+
+
+@app.route('/')
+def home():
+    return redirect(url_for('login'))
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+        password = request.form.get('password', '')
+        c = conn(); user = c.execute('SELECT * FROM users WHERE lower(email)=? AND active=1', (email,)).fetchone(); c.close()
+        if user and check_password_hash(user['password'], password):
+            if user['role'] != 'admin' and normalize_campus(user['campus']) not in CAMPUSES:
+                flash('La cuenta todavía no tiene un campus Inlearning asignado. Comunícate con Administración.', 'danger')
+                return render_template('login.html')
+            session.clear()
+            session.update(user_id=user['id'], name=user['name'], role=user['role'],
+                           institute=user['institute'], campus=user['campus'], account_code=user['account_code'])
+            return redirect(url_for(role_home_endpoint(user['role'])))
+        flash('Credenciales incorrectas.', 'danger')
+    return render_template('login.html')
+
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
+
+@app.route('/register', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def register():
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        email = request.form.get('email', '').strip().lower()
+        password = request.form.get('password', '')
+        role = request.form.get('role', 'security')
+        campus = normalize_campus(request.form.get('campus'))
+        institute = None
+        if role not in ROLES:
+            role = 'security'
+        if role == 'admin':
+            campus = None
+        if not name or not email or not password:
+            flash('Completa nombre, correo y contraseña.', 'danger')
+            return render_template('register.html')
+        if role != 'admin' and campus not in CAMPUSES:
+            flash('Selecciona un campus Inlearning para la cuenta operativa.', 'danger')
+            return render_template('register.html')
+        try:
+            c = conn()
+            account_code = request.form.get('account_code', '').strip() or (next_operational_account_code(c, role, campus) if role != 'admin' else None)
+            c.execute('''INSERT INTO users(name,email,password,role,account_code,institute,campus,active,created_at)
+                         VALUES(?,?,?,?,?,?,?,1,?)''',
+                      (name, email, generate_password_hash(password), role, account_code, institute, campus, now_iso()))
+            c.commit(); user = c.execute('SELECT id FROM users WHERE lower(email)=?', (email,)).fetchone(); c.close()
+            scope_text = 'Alcance global' if role == 'admin' else f'Inlearning · Campus {campus_label(campus)}'
+            audit('CREAR_USUARIO', 'user', user['id'] if user else None, f'{name} · {role} · {scope_text}')
+            flash('Usuario creado correctamente.', 'success')
+            return redirect(url_for('users', role=role, campus=campus or ''))
+        except DBIntegrityError:
+            flash('Ese correo ya existe.', 'danger')
+    return render_template('register.html')
+
+
+@app.route('/usuarios')
+@login_required
+@admin_required
+def users():
+    q = request.args.get('q', '').strip()
+    role_filter = request.args.get('role', '').strip()
+    institute_filter = ''
+    campus_filter = normalize_campus(request.args.get('campus'))
+    conditions, params = [], []
+    if q:
+        conditions.append('(name LIKE ? OR email LIKE ? OR account_code LIKE ?)')
+        params.extend([f'%{q}%', f'%{q}%', f'%{q}%'])
+    if role_filter in ROLES:
+        conditions.append('role=?'); params.append(role_filter)
+    if campus_filter:
+        conditions.append('campus=?'); params.append(campus_filter)
+    where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
+    c = conn()
+    data = c.execute('''SELECT id,name,email,role,account_code,institute,campus,active,created_at
+                        FROM users''' + where + " ORDER BY CASE WHEN role='admin' THEN 0 ELSE 1 END,campus,role,account_code,name", tuple(params)).fetchall()
+    counts = {role: c.execute('SELECT COUNT(*) n FROM users WHERE role=?', (role,)).fetchone()['n'] for role in ROLES}
+    counts['inactive'] = c.execute('SELECT COUNT(*) n FROM users WHERE active=0').fetchone()['n']
+    branch_counts = c.execute('''SELECT campus,role,COUNT(*) total
+                                 FROM users WHERE role<>'admin' GROUP BY campus,role''').fetchall()
+    c.close()
+    return render_template('users.html', users=data, q=q, role_filter=role_filter,
+                           institute_filter=institute_filter, campus_filter=campus_filter,
+                           counts=counts, branch_counts=branch_counts)
+
+
+@app.route('/usuarios/<int:user_id>/editar', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def edit_user(user_id):
+    c = conn(); user = c.execute('SELECT * FROM users WHERE id=?', (user_id,)).fetchone()
+    if not user:
+        c.close(); flash('Usuario no encontrado.', 'danger'); return redirect(url_for('users'))
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        email = request.form.get('email', '').strip().lower()
+        role = request.form.get('role', '').strip()
+        password = request.form.get('password', '')
+        active = 1 if request.form.get('active') == '1' else 0
+        campus = normalize_campus(request.form.get('campus'))
+        institute = None
+        account_code = request.form.get('account_code', '').strip() or None
+        if role == 'admin':
+            campus = None
+        if not name or not email or role not in ROLES:
+            c.close(); flash('Completa nombre, correo y rol válidos.', 'danger'); return render_template('edit_user.html', user=user)
+        if role != 'admin' and campus not in CAMPUSES:
+            c.close(); flash('Selecciona un campus Inlearning.', 'danger'); return render_template('edit_user.html', user=user)
+        if role != 'admin' and not account_code:
+            account_code = next_operational_account_code(c, role, campus)
+        if user_id == session.get('user_id') and active == 0:
+            c.close(); flash('No puedes desactivar tu propia cuenta.', 'danger'); return render_template('edit_user.html', user=user)
+        try:
+            if password:
+                c.execute('''UPDATE users SET name=?,email=?,role=?,account_code=?,institute=?,campus=?,active=?,password=? WHERE id=?''',
+                          (name, email, role, account_code, institute, campus, active, generate_password_hash(password), user_id))
+            else:
+                c.execute('''UPDATE users SET name=?,email=?,role=?,account_code=?,institute=?,campus=?,active=? WHERE id=?''',
+                          (name, email, role, account_code, institute, campus, active, user_id))
+            c.commit(); c.close()
+            audit('EDITAR_USUARIO', 'user', user_id, f"{name} · {role} · {'Alcance global' if role == 'admin' else 'Inlearning · Campus ' + campus_label(campus)} · activo={active}")
+            flash('Cuenta actualizada correctamente.', 'success')
+            return redirect(url_for('users', role=role, campus=campus or ''))
+        except DBIntegrityError:
+            c.close(); flash('Ese correo ya está utilizado por otra cuenta.', 'danger')
+    else:
+        c.close()
+    return render_template('edit_user.html', user=user)
+
+
+@app.route('/usuarios/<int:user_id>/eliminar', methods=['POST'])
+@login_required
+@admin_required
+def delete_user(user_id):
+    if user_id == session.get('user_id'):
+        flash('No puedes eliminar tu propia cuenta administrativa.', 'danger')
+        return redirect(url_for('users'))
+    c = conn()
+    user = c.execute('SELECT * FROM users WHERE id=?', (user_id,)).fetchone()
+    if not user:
+        c.close(); flash('Usuario no encontrado.', 'danger'); return redirect(url_for('users'))
+    if user['role'] == 'admin':
+        admins = c.execute("SELECT COUNT(*) n FROM users WHERE role='admin' AND active=1").fetchone()['n']
+        if admins <= 1:
+            c.close(); flash('Debe permanecer al menos un administrador activo.', 'danger'); return redirect(url_for('users'))
+    detail = f"{user['name']} · {user['role']} · {user['email']}"
+    c.execute('DELETE FROM users WHERE id=?', (user_id,))
+    c.commit(); c.close()
+    audit('ELIMINAR_USUARIO', 'user', user_id, detail)
+    flash('Usuario eliminado correctamente.', 'success')
+    return redirect(url_for('users'))
+
+
+@app.route('/sedes')
+@login_required
+@admin_required
+def branches():
+    c = conn(); today = today_lima(); cards = []
+    year = now_dt().year
+    for campus in CAMPUSES:
+        annual = annual_visit_counts(c, year, '', campus)
+        card = {
+            'campus': campus,
+            'site_name': campus_label(campus),
+            'students': c.execute('SELECT COUNT(*) n FROM students WHERE active=1 AND campus=?', (campus,)).fetchone()['n'],
+            'security': c.execute("SELECT COUNT(*) n FROM users WHERE active=1 AND role='security' AND campus=?", (campus,)).fetchone()['n'],
+            'sae': c.execute("SELECT COUNT(*) n FROM users WHERE active=1 AND role='sae' AND campus=?", (campus,)).fetchone()['n'],
+            'commercial': c.execute("SELECT COUNT(*) n FROM users WHERE active=1 AND role='commercial' AND campus=?", (campus,)).fetchone()['n'],
+            'visits_today': c.execute("SELECT COUNT(*) n FROM visitors WHERE campus=? AND substr(created_at,1,10)=?", (campus, today)).fetchone()['n'],
+            'pending': c.execute("SELECT COUNT(*) n FROM visitors WHERE campus=? AND COALESCE(flag_new,0)=1 AND attended=0", (campus,)).fetchone()['n'],
+            'year_sae': annual['year_sae'],
+            'year_commercial': annual['year_commercial'],
+        }
+        cards.append(card)
+    audits = c.execute('''SELECT a.*,u.name admin_name FROM audit_logs a LEFT JOIN users u ON u.id=a.admin_user_id
+                          ORDER BY a.id DESC LIMIT 12''').fetchall()
+    c.close()
+    return render_template('branches.html', branch_cards=cards, audits=audits)
+
+
+@app.route('/sedes/<campus>')
+@login_required
+@admin_required
+def branch_detail(campus):
+    campus = normalize_campus(campus)
+    if campus not in CAMPUSES:
+        flash('Campus inválido.', 'danger'); return redirect(url_for('branches'))
+    c = conn(); today = today_lima()
+    year = now_dt().year
+    annual_rows = combined_visit_rows(c, f'{year}-01-01T00:00:00', f'{year + 1}-01-01T00:00:00', '', campus)
+    stats = {
+        'students': c.execute('SELECT COUNT(*) n FROM students WHERE active=1 AND campus=?', (campus,)).fetchone()['n'],
+        'users': c.execute("SELECT COUNT(*) n FROM users WHERE active=1 AND role<>'admin' AND campus=?", (campus,)).fetchone()['n'],
+        'visits_today': c.execute("SELECT COUNT(*) n FROM visitors WHERE campus=? AND substr(created_at,1,10)=?", (campus, today)).fetchone()['n'],
+        'pending': c.execute("SELECT COUNT(*) n FROM visitors WHERE campus=? AND COALESCE(flag_new,0)=1 AND attended=0", (campus,)).fetchone()['n'],
+        'attended': c.execute("SELECT COUNT(*) n FROM visitors WHERE campus=? AND attended=1", (campus,)).fetchone()['n'],
+        'in_attention': c.execute("SELECT COUNT(*) n FROM visitors WHERE campus=? AND COALESCE(flag_in_attention,0)=1 AND attended=0", (campus,)).fetchone()['n'],
+        'today_sae': c.execute("SELECT COUNT(*) n FROM visitors WHERE campus=? AND destination_area='SAE' AND substr(created_at,1,10)=?", (campus, today)).fetchone()['n'],
+        'today_commercial': c.execute("SELECT COUNT(*) n FROM visitors WHERE campus=? AND destination_area='COMERCIAL' AND substr(created_at,1,10)=?", (campus, today)).fetchone()['n'],
+        'year_sae': sum(1 for r in annual_rows if r['destination_area'] == 'SAE'),
+        'year_commercial': sum(1 for r in annual_rows if r['destination_area'] == 'COMERCIAL'),
+        'attended_sae': sum(1 for r in annual_rows if r['destination_area'] == 'SAE' and int(record_value(r, 'attended', 0) or 0) == 1),
+        'attended_commercial': sum(1 for r in annual_rows if r['destination_area'] == 'COMERCIAL' and int(record_value(r, 'attended', 0) or 0) == 1),
+    }
+    users_data = c.execute('''SELECT * FROM users WHERE role<>'admin' AND campus=? ORDER BY role,account_code,name''', (campus,)).fetchall()
+    visits_data = c.execute('''SELECT v.*,ru.name registered_by,au.name attended_by FROM visitors v
+                               LEFT JOIN users ru ON ru.id=v.user_id LEFT JOIN users au ON au.id=v.attended_by_user_id
+                               WHERE v.campus=? ORDER BY v.id DESC LIMIT 20''', (campus,)).fetchall()
+    charts = {'SAE': build_activity_charts(c, 'SAE', '', campus), 'COMERCIAL': build_activity_charts(c, 'COMERCIAL', '', campus)}
+    c.close()
+    return render_template('branch_detail.html', institute='', campus=campus, stats=stats,
+                           branch_users=users_data, branch_visits=visits_data, branch_charts=charts)
+
+
+@app.route('/sedes/<institute>/<path:campus>')
+@login_required
+@admin_required
+def legacy_branch_detail(institute, campus):
+    # Compatibilidad con enlaces antiguos: las marcas IDAT/ZEGEL ahora comparten la misma sede física.
+    campus = normalize_campus(campus)
+    return redirect(url_for('branch_detail', campus=campus))
+
+
+@app.route('/solicitudes')
+@login_required
+@role_required('admin', 'security')
+def registration_requests():
+    status_filter = request.args.get('status', '').strip().upper()
+    if status_filter not in ('PENDIENTE', 'APROBADA', 'RECHAZADA'):
+        status_filter = ''
+    if session.get('role') == 'admin':
+        institute = normalize_institute(request.args.get('institute'))
+        campus = normalize_campus(request.args.get('campus'))
+        if institute and campus and not valid_branch(institute, campus):
+            campus = ''
+    else:
+        _, campus = session_scope(); institute = ''
+
+    conditions, params = [], []
+    if institute:
+        conditions.append('r.institute=?'); params.append(institute)
+    if campus:
+        conditions.append('r.campus=?'); params.append(campus)
+    if status_filter:
+        conditions.append('r.status=?'); params.append(status_filter)
+    where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
+    c = conn()
+    data = c.execute('''SELECT r.*,u.name requester_name,rv.name reviewer_name
+                        FROM registration_requests r
+                        LEFT JOIN users u ON u.id=r.requester_user_id
+                        LEFT JOIN users rv ON rv.id=r.reviewed_by_user_id''' + where +
+                     " ORDER BY CASE r.status WHEN 'PENDIENTE' THEN 0 WHEN 'APROBADA' THEN 1 ELSE 2 END,r.id DESC",
+                     tuple(params)).fetchall()
+    base_conditions, base_params = [], []
+    if institute:
+        base_conditions.append('institute=?'); base_params.append(institute)
+    if campus:
+        base_conditions.append('campus=?'); base_params.append(campus)
+    base_where = ' WHERE ' + ' AND '.join(base_conditions) if base_conditions else ''
+    counts = {}
+    for state in ('PENDIENTE', 'APROBADA', 'RECHAZADA'):
+        state_where = base_where + (' AND ' if base_where else ' WHERE ') + 'status=?'
+        counts[state.lower()] = c.execute('SELECT COUNT(*) n FROM registration_requests' + state_where,
+                                          tuple(base_params + [state])).fetchone()['n']
+    c.close()
+    return render_template('registration_requests.html', requests_data=data, counts=counts,
+                           selected_institute=institute, selected_campus=campus,
+                           status_filter=status_filter)
+
+
+@app.route('/solicitudes/nueva', methods=['GET', 'POST'])
+@login_required
+@role_required('admin', 'security')
+def new_registration_request():
+    if session.get('role') == 'admin':
+        institute = normalize_institute(request.form.get('institute') if request.method == 'POST' else request.args.get('institute'), 'IDAT')
+        campus = normalize_campus(request.form.get('campus') if request.method == 'POST' else request.args.get('campus'), 'SJM')
+        if not valid_branch(institute, campus):
+            institute, campus = 'IDAT', 'SJM'
+    else:
+        session_brand, campus = session_scope()
+        institute = normalize_institute(request.form.get('institute') if request.method == 'POST' else request.args.get('institute'), session_brand or 'IDAT')
+
+    if request.method == 'POST':
+        request_type = request.form.get('request_type', 'ALUMNO').strip().upper()
+        full_name = request.form.get('full_name', '').strip().upper()
+        dni = only_digits(request.form.get('dni', ''))
+        code = str(request.form.get('code', '') or '').strip().upper()
+        phone = only_digits(request.form.get('phone', ''))
+        detail = request.form.get('detail', '').strip()
+        if request_type not in ('ALUMNO', 'DOCENTE'):
+            request_type = 'ALUMNO'
+        if not full_name or not dni:
+            flash('Completa nombre y DNI.', 'danger')
+        elif request_type == 'ALUMNO' and not code:
+            flash('Para alumnos debes indicar el código.', 'danger')
+        else:
+            c = conn()
+            c.execute('''INSERT INTO registration_requests(requester_user_id,request_type,full_name,dni,code,phone,
+                         detail,institute,campus,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,'PENDIENTE',?)''',
+                      (session['user_id'], request_type, full_name, dni, code or None, phone or None,
+                       detail or None, institute, campus, now_iso()))
+            c.commit(); c.close()
+            flash(f'Solicitud enviada a la bandeja de {institute} {campus}.', 'success')
+            return redirect(url_for('registration_requests', institute=institute, campus=campus))
+    return render_template('registration_request_form.html', institute=institute, campus=campus,
+                           prefill_dni=request.args.get('dni', ''))
+
+
+@app.post('/solicitudes/<int:request_id>/resolver')
+@login_required
+@admin_required
+def resolve_registration_request(request_id):
+    decision = request.form.get('decision', '').strip().upper()
+    if decision not in ('APROBADA', 'RECHAZADA'):
+        flash('Decisión inválida.', 'danger'); return redirect(url_for('registration_requests'))
+    c = conn(); item = c.execute('SELECT * FROM registration_requests WHERE id=?', (request_id,)).fetchone()
+    if not item:
+        c.close(); flash('La solicitud no existe.', 'danger'); return redirect(url_for('registration_requests'))
+    if decision == 'APROBADA':
+        stamp = now_iso()
+        if item['request_type'] == 'ALUMNO':
+            if not item['code']:
+                c.close(); flash('La solicitud no tiene código de alumno.', 'danger'); return redirect(url_for('registration_requests'))
+            c.execute('''INSERT INTO students(name,dni,code,entry_date,institute,campus,active,created_at,updated_at)
+                         VALUES(?,?,?,?,?,?,1,?,?)
+                         ON CONFLICT(code) DO UPDATE SET name=excluded.name,dni=excluded.dni,
+                         institute=excluded.institute,campus=excluded.campus,active=1,updated_at=excluded.updated_at''',
+                      (item['full_name'], item['dni'], item['code'], now_dt().strftime('%d/%m/%Y'),
+                       item['institute'], item['campus'], stamp, stamp))
+        else:
+            c.execute('''INSERT INTO teachers(name,dni,area,username,email,phone,institute,campus,active,created_at,updated_at)
+                         VALUES(?,?,?,?,?,?,?,?,1,?,?)
+                         ON CONFLICT(dni) DO UPDATE SET name=excluded.name,phone=excluded.phone,
+                         institute=excluded.institute,campus=excluded.campus,active=1,updated_at=excluded.updated_at''',
+                      (item['full_name'], item['dni'], '', '', '', item['phone'] or '',
+                       item['institute'], item['campus'], stamp, stamp))
+    c.execute('''UPDATE registration_requests SET status=?,reviewed_by_user_id=?,reviewed_at=? WHERE id=?''',
+              (decision, session['user_id'], now_iso(), request_id))
+    c.commit(); c.close()
+    audit('RESOLVER_SOLICITUD', 'registration_request', request_id,
+          f'{decision} · {item["request_type"]} · {branch_label(item["institute"], item["campus"])}')
+    flash('Solicitud actualizada correctamente.', 'success')
+    return redirect(url_for('registration_requests', institute=item['institute'], campus=item['campus']))
+
+
+@app.route('/seguridad')
+@login_required
+@role_required('admin', 'security')
+def security_panel():
+    today = today_lima()
+    default_brand, campus = session_scope()
+    if session.get('role') == 'admin':
+        default_brand = normalize_institute(request.args.get('institute'), 'IDAT')
+        campus = normalize_campus(request.args.get('campus'), 'SJM')
+    if campus not in CAMPUSES:
+        campus = 'SJM'
+    c = conn()
+    # Seguridad opera por sede física consolidada; la marca se selecciona al registrar.
+    stats = {
+        'students_today': c.execute('''SELECT COUNT(*) n FROM access_logs WHERE registered_campus=? AND substr(created_at,1,10)=?''', (campus, today)).fetchone()['n'],
+        'teachers_today': c.execute('''SELECT COUNT(*) n FROM teacher_logs WHERE registered_campus=? AND substr(created_at,1,10)=?''', (campus, today)).fetchone()['n'],
+        'visits_today': c.execute('''SELECT COUNT(*) n FROM visitors WHERE campus=? AND substr(created_at,1,10)=?''', (campus, today)).fetchone()['n'],
+        'my_actions': c.execute('''SELECT (SELECT COUNT(*) FROM access_logs WHERE user_id=? AND substr(created_at,1,10)=?) +
+                                         (SELECT COUNT(*) FROM teacher_logs WHERE user_id=? AND substr(created_at,1,10)=?) +
+                                         (SELECT COUNT(*) FROM visitors WHERE user_id=? AND substr(created_at,1,10)=?) n''',
+                                      (session['user_id'], today, session['user_id'], today, session['user_id'], today)).fetchone()['n'],
+    }
+    c.close()
+    return render_template('security_panel.html', stats=stats, institute=default_brand, campus=campus)
+
+
+@app.route('/consulta', methods=['GET', 'POST'])
+@login_required
+@role_required('admin', 'security')
+def consulta():
+    result = None; q = ''; status = None
+    if session.get('role') == 'admin':
+        institute = normalize_institute(request.form.get('institute') if request.method == 'POST' else request.args.get('institute'), 'IDAT')
+        campus = normalize_campus(request.form.get('campus') if request.method == 'POST' else request.args.get('campus'), 'SJM')
+    else:
+        session_brand, campus = session_scope()
+        institute = normalize_institute(request.form.get('institute') if request.method == 'POST' else request.args.get('institute'), session_brand or 'IDAT')
+    if not valid_branch(institute, campus):
+        institute = institute if institute in INSTITUTES else 'IDAT'
+        campus = campus if campus in CAMPUSES else 'SJM'
+    if request.method == 'POST':
+        q = request.form.get('q', '').strip().upper()
+        note = request.form.get('note', '').strip()
+        c = conn()
+        student = c.execute('''SELECT * FROM students WHERE (dni=? OR code=?) AND institute=? AND campus=?
+                               ORDER BY active DESC LIMIT 1''', (q, q, institute, campus)).fetchone()
+        status = 'ACTIVO' if student and student['active'] else 'INACTIVO'
+        stamp = now_iso()
+        c.execute('INSERT INTO searches(user_id,query,result,student_name,created_at) VALUES(?,?,?,?,?)',
+                  (session['user_id'], q, status, student['name'] if student else None, stamp))
+        c.execute('''INSERT INTO access_logs(user_id,student_id,query,result,student_name,student_dni,student_code,
+                     student_institute,student_campus,registered_institute,registered_campus,note,created_at)
+                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                  (session['user_id'], student['id'] if student else None, q, status,
+                   student['name'] if student else None, student['dni'] if student else None,
+                   student['code'] if student else None, student['institute'] if student else institute,
+                   student['campus'] if student else campus, institute, campus, note, stamp))
+        c.commit(); c.close(); result = student
+    return render_template('consulta.html', result=result, q=q, status=status, institute=institute, campus=campus)
+
+
+@app.route('/docentes/registro', methods=['GET', 'POST'])
+@login_required
+@role_required('admin', 'security')
+def teacher_check():
+    result = None; q = ''; status = None
+    if session.get('role') == 'admin':
+        institute = normalize_institute(request.form.get('institute') if request.method == 'POST' else request.args.get('institute'), 'IDAT')
+        campus = normalize_campus(request.form.get('campus') if request.method == 'POST' else request.args.get('campus'), 'SJM')
+    else:
+        session_brand, campus = session_scope()
+        institute = normalize_institute(request.form.get('institute') if request.method == 'POST' else request.args.get('institute'), session_brand or 'IDAT')
+    if not valid_branch(institute, campus):
+        institute = institute if institute in INSTITUTES else 'IDAT'
+        campus = campus if campus in CAMPUSES else 'SJM'
+    if request.method == 'POST':
+        q = request.form.get('q', '').strip().upper()
+        note = request.form.get('note', '').strip()
+        c = conn()
+        teacher = c.execute('''SELECT * FROM teachers WHERE dni=? AND institute=? AND campus=?''', (q, institute, campus)).fetchone()
+        status = 'ACTIVO' if teacher and teacher['active'] else 'INACTIVO'
+        stamp = now_iso()
+        c.execute('''INSERT INTO teacher_logs(user_id,teacher_id,query,result,teacher_name,teacher_dni,teacher_area,
+                     teacher_institute,teacher_campus,registered_institute,registered_campus,note,created_at)
+                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                  (session['user_id'], teacher['id'] if teacher else None, q, status,
+                   teacher['name'] if teacher else None, teacher['dni'] if teacher else None,
+                   teacher['area'] if teacher else None, teacher['institute'] if teacher else institute,
+                   teacher['campus'] if teacher else campus, institute, campus, note, stamp))
+        c.commit(); c.close(); result = teacher
+    return render_template('teacher_check.html', result=result, q=q, status=status, institute=institute, campus=campus)
+
+
+@app.route('/visitas/nueva', methods=['GET', 'POST'])
+@login_required
+@role_required('admin', 'security')
+def new_visitor():
+    if session.get('role') == 'admin':
+        institute = normalize_institute(request.form.get('institute') if request.method == 'POST' else request.args.get('institute'), 'IDAT')
+        campus = normalize_campus(request.form.get('campus') if request.method == 'POST' else request.args.get('campus'), 'SJM')
+    else:
+        session_brand, campus = session_scope()
+        institute = normalize_institute(request.form.get('institute') if request.method == 'POST' else request.args.get('brand'), session_brand or 'IDAT')
+    if not valid_branch(institute, campus):
+        institute = institute if institute in INSTITUTES else 'IDAT'
+        campus = campus if campus in CAMPUSES else 'SJM'
+    selected_area = request.form.get('destination_area', '').strip().upper() if request.method == 'POST' else request.args.get('area', '').strip().upper()
+    if selected_area not in AREAS:
+        selected_area = ''
+    if request.method == 'POST':
+        full_name = request.form.get('full_name', '').strip().upper()
+        dni = only_digits(request.form.get('dni', ''))
+        phone = only_digits(request.form.get('phone', ''))
+        destination_area = selected_area
+        reason = request.form.get('reason', '').strip()
+        commercial_reason = request.form.get('commercial_reason', '').strip().upper()
+        visit_type = ''
+        if destination_area not in AREAS:
+            flash('Selecciona el área SAE o Comercial.', 'danger')
+            return render_template('visitor_form.html', selected_area=destination_area, institute=institute, campus=campus)
+        if not full_name or not dni or not phone:
+            flash('Completa nombres, DNI y teléfono.', 'danger')
+            return render_template('visitor_form.html', selected_area=destination_area, institute=institute, campus=campus)
+        if destination_area == 'COMERCIAL':
+            if commercial_reason not in ('CARRERA', 'CURSO'):
+                flash('Selecciona Carrera o Curso.', 'danger')
+                return render_template('visitor_form.html', selected_area=destination_area, institute=institute, campus=campus)
+            reason = commercial_reason; visit_type = commercial_reason
+        c = conn()
+        turn_number = next_turn_number(c, campus, destination_area)
+        c.execute('''INSERT INTO visitors(user_id,full_name,dni,phone,destination_area,visit_type,reason,
+                     visit_status,flag_new,flag_in_attention,turn_number,institute,campus,created_at)
+                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                  (session['user_id'], full_name, dni, phone, destination_area, visit_type, reason,
+                   'NUEVA', 1, 0, turn_number, institute, campus, now_iso()))
+        c.commit(); c.close()
+        flash(f'Visita registrada · Marca {institute} · Sede {campus_label(campus)}.', 'success')
+        return redirect(url_for('security_panel'))
+    return render_template('visitor_form.html', selected_area=selected_area, institute=institute, campus=campus)
+
+
+@app.route('/sae')
+@login_required
+@role_required('admin', 'sae')
+def sae_area():
+    return redirect(url_for('visitors', area='SAE'))
+
+
+@app.route('/comercial')
+@login_required
+@role_required('admin', 'commercial')
+def commercial_area():
+    return redirect(url_for('visitors', area='COMERCIAL'))
+
+
+
+@app.route('/visitas')
+@login_required
+@role_required('admin', 'sae', 'commercial')
+def visitors():
+    role = session.get('role')
+    status_filter = [x.strip().upper() for x in request.args.getlist('status') if x.strip().upper() in ('NUEVA','ATENDIDO','NO ATENDIDO')]
+    base_conditions, base_params = [], []
+    area_actual = ''
+    if role == 'sae':
+        area_actual = 'SAE'; _, campus = session_scope(); institute = ''
+        base_conditions.extend(['v.destination_area=?', 'v.campus=?'])
+        base_params.extend([area_actual, campus])
+    elif role == 'commercial':
+        area_actual = 'COMERCIAL'; _, campus = session_scope(); institute = ''
+        base_conditions.extend(['v.destination_area=?', 'v.campus=?'])
+        base_params.extend([area_actual, campus])
+    else:
+        area_actual = request.args.get('area', '').strip().upper()
+        if area_actual in AREAS:
+            base_conditions.append('v.destination_area=?'); base_params.append(area_actual)
+        else:
+            area_actual = ''
+        institute = normalize_institute(request.args.get('institute'))
+        campus = normalize_campus(request.args.get('campus'))
+        extra, extra_params = scope_filter('v', institute, campus)
+        base_conditions.extend(extra); base_params.extend(extra_params)
+    conditions = list(base_conditions)
+    params = list(base_params)
+    status_condition = build_visit_status_filter('v', status_filter)
+    if status_condition:
+        conditions.append(status_condition)
+    where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
+    order = " ORDER BY CASE WHEN v.attended=1 THEN 3 WHEN COALESCE(v.flag_in_attention,0)=1 THEN 2 ELSE 1 END, COALESCE(v.turn_number,v.id) ASC, v.id ASC"
+    c = conn()
+    data = c.execute("SELECT v.*,u.name registered_by,au.name attended_by,su.name status_updated_by,cu.name current_sae_name FROM visitors v LEFT JOIN users u ON u.id=v.user_id LEFT JOIN users au ON au.id=v.attended_by_user_id LEFT JOIN users su ON su.id=v.status_updated_by_user_id LEFT JOIN users cu ON cu.id=v.current_sae_user_id" + where + order, tuple(params)).fetchall()
+    max_where = ' WHERE ' + ' AND '.join(base_conditions) if base_conditions else ''
+    row = c.execute('SELECT COALESCE(MAX(v.id),0) ultimo FROM visitors v' + max_where, tuple(base_params)).fetchone()
+    c.close()
+    return render_template('visitors.html', visitors=data, area_actual=area_actual,
+                           institute=institute, campus=campus, ultimo_id=row['ultimo'] or 0,
+                           status_filter=status_filter, sonido_area=role in ('sae', 'commercial'))
+
+@app.route('/api/visitas_estado')
+@login_required
+@role_required('admin', 'sae', 'commercial')
+def visitas_estado():
+    role = session.get('role')
+    conditions, params = [], []
+    if role in ('sae', 'commercial'):
+        area = 'SAE' if role == 'sae' else 'COMERCIAL'
+        _, campus = session_scope(); institute = ''
+        conditions = ['destination_area=?', 'campus=?']
+        params = [area, campus]
+    else:
+        area = request.args.get('area', '').strip().upper()
+        institute = normalize_institute(request.args.get('institute'))
+        campus = normalize_campus(request.args.get('campus'))
+        if area in AREAS:
+            conditions.append('destination_area=?'); params.append(area)
+        extra, extra_params = scope_filter('', institute, campus)
+        conditions.extend(extra); params.extend(extra_params)
+    try:
+        since_id = int(request.args.get('since', '0') or 0)
+    except ValueError:
+        since_id = 0
+    where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
+    since_where = where + (' AND ' if where else ' WHERE ') + 'id>?'
+    c = conn()
+    row = c.execute('''SELECT COUNT(*) total,COALESCE(MAX(id),0) ultimo,
+                       SUM(CASE WHEN COALESCE(flag_new,0)=1 AND attended=0 THEN 1 ELSE 0 END) pendientes
+                       FROM visitors''' + where, tuple(params)).fetchone()
+    nuevos = c.execute('SELECT COUNT(*) n FROM visitors' + since_where, tuple(params + [since_id])).fetchone()['n']
+    c.close()
+    return jsonify(total=row['total'] or 0, ultimo=row['ultimo'] or 0,
+                   pendientes=row['pendientes'] or 0, nuevos=nuevos or 0)
+
+
+
+@app.route('/visitas/<int:visit_id>/estado', methods=['POST'])
+@login_required
+@role_required('admin', 'sae', 'commercial')
+def update_visit_status(visit_id):
+    c = conn(); visit = c.execute('SELECT * FROM visitors WHERE id=?', (visit_id,)).fetchone()
+    if not visit:
+        c.close(); flash('La visita no existe.', 'danger'); return redirect(url_for('visitors'))
+    role = session.get('role')
+    if role != 'admin':
+        expected_area = 'SAE' if role == 'sae' else 'COMERCIAL'
+        _, campus = session_scope()
+        if visit['destination_area'] != expected_area or visit['campus'] != campus:
+            c.close(); flash('No tienes permiso para gestionar visitas de otra sede.', 'danger'); return redirect(url_for('visitors'))
+
+    submitted_flags = 'flag_new' in request.form or 'flag_in_attention' in request.form or 'attended' in request.form
+    if submitted_flags:
+        flag_new = 1 if request.form.get('flag_new') == '1' else 0
+        flag_in_attention = 1 if request.form.get('flag_in_attention') == '1' else 0
+        attended = 1 if request.form.get('attended') == '1' else 0
+    else:
+        estado = request.form.get('estado', 'NUEVA').strip().upper()
+        if estado not in ('NUEVA', 'ATENDIDO', 'NO ATENDIDO'):
+            estado = 'NUEVA'
+        attended = 1 if estado == 'ATENDIDO' else 0
+        flag_new = 1 if estado == 'NUEVA' else 0
+        flag_in_attention = 1 if estado == 'NO ATENDIDO' else 0
+
+    if attended:
+        flag_new = 0
+        flag_in_attention = 0
+    elif not flag_new and not flag_in_attention:
+        flag_new = 1
+
+    visit_status = 'ATENDIDO' if attended else ('NO ATENDIDO' if flag_in_attention else 'NUEVA')
+    attended_by = visit['attended_by_user_id']
+    attended_at = visit['attended_at']
+    service_module = visit['service_module']
+    current_sae_user_id = visit['current_sae_user_id']
+
+    if attended:
+        attended_by = session['user_id']
+        attended_at = now_iso()
+        if visit['destination_area'] == 'SAE' and role in ('sae', 'admin'):
+            current_sae_user_id = session['user_id'] if role == 'sae' else (current_sae_user_id or session['user_id'])
+            service_module = service_module or (module_for_sae_user(c, current_sae_user_id) if current_sae_user_id else '')
+    else:
+        attended_by = None
+        attended_at = None
+        if role == 'sae' and visit['destination_area'] == 'SAE' and flag_in_attention:
+            current_sae_user_id = session['user_id']
+            service_module = module_for_sae_user(c, session['user_id']) or service_module
+        elif not flag_in_attention:
+            current_sae_user_id = None
+            service_module = None
+
+    c.execute("UPDATE visitors SET visit_status=?,attended=?,flag_new=?,flag_in_attention=?, attended_at=?,attended_by_user_id=?,status_updated_by_user_id=?,status_updated_at=?, current_sae_user_id=?,service_module=? WHERE id=?",
+              (visit_status, attended, flag_new, flag_in_attention, attended_at, attended_by, session['user_id'], now_iso(), current_sae_user_id, service_module, visit_id))
+    c.commit(); c.close()
+    flash('Status actualizado correctamente.', 'success')
+    redirect_args = {'status': request.form.get('return_status', '')}
+    if role == 'admin':
+        redirect_args.update(institute=visit['institute'], campus=visit['campus'], area=visit['destination_area'])
+    return redirect(url_for('visitors', **redirect_args))
+
+def visit_signature(created_at, dni, area, institute, campus):
+    created = str(created_at or '').strip().replace(' ', 'T')[:19]
+    return '|'.join([created, only_digits(dni), str(area or '').strip().upper(),
+                     str(institute or '').strip().upper(), str(campus or '').strip().upper()])
+
+
+def normalize_month(value):
+    value = str(value or '').strip()
+    try:
+        dt = datetime.strptime(value, '%Y-%m')
+        return dt.strftime('%Y-%m')
+    except Exception:
+        return now_dt().strftime('%Y-%m')
+
+
+def month_range(month_value):
+    month_value = normalize_month(month_value)
+    first = datetime.strptime(month_value + '-01', '%Y-%m-%d')
+    if first.month == 12:
+        next_month = datetime(first.year + 1, 1, 1)
+    else:
+        next_month = datetime(first.year, first.month + 1, 1)
+    return month_value, first.strftime('%Y-%m-%dT00:00:00'), next_month.strftime('%Y-%m-%dT00:00:00')
+
+
+def combined_visit_rows(c, start, end, institute='', campus='', area=''):
+    conditions = ['created_at>=?', 'created_at<?']
+    params = [start, end]
+    if institute:
+        conditions.append('institute=?'); params.append(institute)
+    if campus:
+        conditions.append('campus=?'); params.append(campus)
+    if area in AREAS:
+        conditions.append('destination_area=?'); params.append(area)
+    where = ' WHERE ' + ' AND '.join(conditions)
+    live = c.execute("""SELECT created_at,institute,campus,destination_area,full_name,dni,phone,reason,visit_status
+                        FROM visitors""" + where, tuple(params)).fetchall()
+    archived = c.execute("""SELECT created_at,institute,campus,destination_area,full_name,dni,phone,reason,visit_status
+                            FROM visit_archive""" + where, tuple(params)).fetchall()
+    merged = {}
+    for row in list(live) + list(archived):
+        key = visit_signature(row['created_at'], row['dni'], row['destination_area'], row['institute'], row['campus'])
+        if key not in merged:
+            merged[key] = dict(row)
+    return sorted(merged.values(), key=lambda r: str(r['created_at']), reverse=True)
+
+
+def annual_visit_counts(c, year, institute='', campus=''):
+    start = f'{year}-01-01T00:00:00'
+    end = f'{year + 1}-01-01T00:00:00'
+    rows = combined_visit_rows(c, start, end, institute, campus)
+    return {
+        'year_sae': sum(1 for r in rows if r['destination_area'] == 'SAE'),
+        'year_commercial': sum(1 for r in rows if r['destination_area'] == 'COMERCIAL'),
+        'year_total': len(rows),
+    }
+
+
+def build_monthly_visit_report(month_value, institute='', campus='', area=''):
+    month_value, start, end = month_range(month_value)
+    c = conn()
+    rows = combined_visit_rows(c, start, end, institute, campus, area)
+    c.close()
+    wb = Workbook(); ws = wb.active; ws.title = 'Visitas'
+    ws.append(['Fecha/Hora', 'Marca', 'Sede', 'Nombre visitante', 'DNI', 'Teléfono',
+               'Área destino', 'Motivo', 'Status'])
+    for row in rows:
+        status = 'EN ATENCIÓN' if row['visit_status'] == 'NO ATENDIDO' else row['visit_status']
+        ws.append([row['created_at'], row['institute'], campus_label(row['campus']), row['full_name'], row['dni'],
+                   row['phone'] or '', row['destination_area'], row['reason'] or '', status])
+    style_sheet(ws)
+    summary = wb.create_sheet('Resumen')
+    summary.append(['RIVA · Registro de Visitas y Asistencias', 'Informe mensual acumulable'])
+    summary.append(['Mes', month_value])
+    summary.append(['Marca', institute or 'Inlearning'])
+    summary.append(['Sede', campus_label(campus) if campus else 'TODAS'])
+    summary.append(['Área', area or 'SAE + COMERCIAL'])
+    summary.append(['Visitas SAE', sum(1 for r in rows if r['destination_area'] == 'SAE')])
+    summary.append(['Visitas Comercial', sum(1 for r in rows if r['destination_area'] == 'COMERCIAL')])
+    summary.append(['Total', len(rows)])
+    summary.append(['Generado', now_dt().strftime('%d/%m/%Y %H:%M')])
+    summary.column_dimensions['A'].width = 28; summary.column_dimensions['B'].width = 42
+    for cell in summary[1]:
+        cell.font = Font(bold=True, color='FFFFFF'); cell.fill = PatternFill('solid', fgColor='172033')
+    filename = f'RIVA_informe_mensual_{month_value}_{institute or "TODOS"}_{CAMPUS_CODES.get(campus,"TODAS")}.xlsx'
+    path = os.path.join(UPLOADS, filename); wb.save(path)
+    return path
+
+
+def import_monthly_visit_report(path):
+    wb = load_workbook(path, data_only=True)
+    ws = wb['Visitas'] if 'Visitas' in wb.sheetnames else wb.active
+    headers = [normalize_header(c.value) for c in ws[1]]
+    def idx(*names):
+        targets = {normalize_header(n) for n in names}
+        for i, h in enumerate(headers):
+            if h in targets:
+                return i
+        return None
+    i_date = idx('Fecha/Hora', 'Fecha')
+    i_inst = idx('Marca', 'Campus', 'Instituto')
+    i_campus = idx('Sede')
+    i_name = idx('Nombre visitante', 'Visitante', 'Nombre')
+    i_dni = idx('DNI')
+    i_phone = idx('Teléfono', 'Telefono')
+    i_area = idx('Área destino', 'Area destino', 'Área', 'Area')
+    i_reason = idx('Motivo', 'Razón', 'Razon')
+    i_status = idx('Status', 'Estado')
+    required = [i_date, i_inst, i_campus, i_name, i_dni, i_area]
+    if any(x is None for x in required):
+        raise ValueError('El archivo no tiene las columnas de un informe mensual RIVA válido.')
+    c = conn()
+    live_rows = c.execute("""SELECT created_at,institute,campus,destination_area,dni FROM visitors""").fetchall()
+    known = {visit_signature(r['created_at'], r['dni'], r['destination_area'], r['institute'], r['campus']) for r in live_rows}
+    archive_rows = c.execute('SELECT source_key FROM visit_archive').fetchall()
+    known.update(r['source_key'] for r in archive_rows)
+    added = skipped = 0
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not any(v not in (None, '') for v in row):
+            continue
+        raw_date = row[i_date]
+        if isinstance(raw_date, datetime):
+            created_at = raw_date.isoformat(timespec='seconds')
+        else:
+            created_at = str(raw_date or '').strip().replace(' ', 'T')
+            if len(created_at) == 10:
+                created_at += 'T00:00:00'
+        institute = normalize_institute(row[i_inst])
+        campus = normalize_campus(row[i_campus])
+        area = str(row[i_area] or '').strip().upper()
+        name = str(row[i_name] or '').strip().upper()
+        dni = only_digits(row[i_dni])
+        if not created_at or not valid_branch(institute, campus) or area not in AREAS or not name or not dni:
+            skipped += 1; continue
+        key = visit_signature(created_at, dni, area, institute, campus)
+        if key in known:
+            skipped += 1; continue
+        raw_status = normalize_header(row[i_status] if i_status is not None else 'NUEVA').upper()
+        if raw_status in ('EN ATENCION', 'NO ATENDIDO'):
+            status = 'NO ATENDIDO'
+        elif raw_status == 'ATENDIDO':
+            status = 'ATENDIDO'
+        else:
+            status = 'NUEVA'
+        phone = only_digits(row[i_phone]) if i_phone is not None else ''
+        reason = str(row[i_reason] or '').strip() if i_reason is not None else ''
+        c.execute("""INSERT INTO visit_archive(source_key,created_at,institute,campus,destination_area,
+                     full_name,dni,phone,reason,visit_status,imported_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                  (key, created_at, institute, campus, area, name, dni, phone, reason, status, now_iso()))
+        known.add(key); added += 1
+    c.commit(); c.close()
+    return added, skipped
+
+
+def dashboard_scope():
+    campus = normalize_campus(request.args.get('campus'))
+    return '', campus
+
+
+@app.route('/dashboard')
+@login_required
+@admin_required
+def dashboard():
+    institute, campus = dashboard_scope()
+    c = conn()
+    year = now_dt().year
+    stats = annual_visit_counts(c, year, institute, campus)
+
+
+    visitor_conditions, visitor_params = scope_filter('v', institute, campus)
+    visitor_where = ' WHERE ' + ' AND '.join(visitor_conditions) if visitor_conditions else ''
+    recent_visitors = c.execute('''SELECT v.*,ru.name registered_by,au.name attended_by FROM visitors v
+                                   LEFT JOIN users ru ON ru.id=v.user_id LEFT JOIN users au ON au.id=v.attended_by_user_id''' +
+                                visitor_where + ' ORDER BY v.id DESC LIMIT 20', tuple(visitor_params)).fetchall()
+
+    branch_cards = []
+    for sede in CAMPUSES:
+        if campus and sede != campus:
+            continue
+        annual_branch = annual_visit_counts(c, year, institute, sede)
+        branch_cards.append({
+            'campus': sede,
+            'site_name': campus_label(sede),
+            'today_sae': c.execute("SELECT COUNT(*) n FROM visitors WHERE campus=? AND destination_area='SAE' AND substr(created_at,1,10)=?", (sede, today_lima())).fetchone()['n'],
+            'today_commercial': c.execute("SELECT COUNT(*) n FROM visitors WHERE campus=? AND destination_area='COMERCIAL' AND substr(created_at,1,10)=?", (sede, today_lima())).fetchone()['n'],
+            'year_sae': annual_branch['year_sae'],
+            'year_commercial': annual_branch['year_commercial'],
+            'new_visits': c.execute("SELECT COUNT(*) n FROM visitors WHERE campus=? AND COALESCE(flag_new,0)=1 AND attended=0", (sede,)).fetchone()['n'],
+            'in_attention': c.execute("SELECT COUNT(*) n FROM visitors WHERE campus=? AND COALESCE(flag_in_attention,0)=1 AND attended=0", (sede,)).fetchone()['n'],
+        })
+
+    charts = {
+        'SAE': build_activity_charts(c, 'SAE', institute, campus),
+        'COMERCIAL': build_activity_charts(c, 'COMERCIAL', institute, campus),
+    }
+    audits = c.execute('''SELECT a.*,u.name admin_name FROM audit_logs a LEFT JOIN users u ON u.id=a.admin_user_id
+                          ORDER BY a.id DESC LIMIT 8''').fetchall()
+    c.close()
+    return render_template('dashboard.html', stats=stats, selected_institute=institute, selected_campus=campus,
+                           branch_cards=branch_cards, recent_visitors=recent_visitors,
+                           admin_activity_charts=charts, audits=audits,
+                           report_month=now_dt().strftime('%Y-%m'), report_year=year,
+                           lima_now=now_dt().strftime('%d/%m/%Y %H:%M'))
+
+
+@app.route('/api/admin/campus-live')
+@login_required
+@admin_required
+def admin_campus_live():
+    c = conn(); year = now_dt().year; today = today_lima(); data = {}
+    for campus in CAMPUSES:
+        annual = annual_visit_counts(c, year, '', campus)
+        data[campus] = {
+            'today_sae': c.execute("SELECT COUNT(*) n FROM visitors WHERE campus=? AND destination_area='SAE' AND substr(created_at,1,10)=?", (campus, today)).fetchone()['n'],
+            'today_commercial': c.execute("SELECT COUNT(*) n FROM visitors WHERE campus=? AND destination_area='COMERCIAL' AND substr(created_at,1,10)=?", (campus, today)).fetchone()['n'],
+            'year_sae': annual['year_sae'],
+            'year_commercial': annual['year_commercial'],
+            'new_visits': c.execute("SELECT COUNT(*) n FROM visitors WHERE campus=? AND COALESCE(flag_new,0)=1 AND attended=0", (campus,)).fetchone()['n'],
+            'in_attention': c.execute("SELECT COUNT(*) n FROM visitors WHERE campus=? AND COALESCE(flag_in_attention,0)=1 AND attended=0", (campus,)).fetchone()['n'],
+        }
+    c.close()
+    return jsonify(campuses=data, updated_at=now_dt().strftime('%H:%M:%S'))
+
+
+@app.route('/panel')
+@login_required
+@admin_required
+def panel():
+    return redirect(url_for('dashboard'))
+
+
+@app.route('/alumnos')
+@login_required
+@admin_required
+def students():
+    q = request.args.get('q', '').strip()
+    institute = normalize_institute(request.args.get('institute'))
+    campus = normalize_campus(request.args.get('campus'))
+    conditions, params = [], []
+    if q:
+        conditions.append('(name LIKE ? OR dni LIKE ? OR code LIKE ?)')
+        params.extend([f'%{q}%', f'%{q}%', f'%{q}%'])
+    extra, extra_params = scope_filter('', institute, campus)
+    conditions.extend(extra); params.extend(extra_params)
+    where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
+    c = conn()
+    data = c.execute('SELECT * FROM students' + where + ' ORDER BY active DESC,institute,campus,name', tuple(params)).fetchall()
+    summary = []
+    for inst, sede in BRANCHES:
+        summary.append({'institute': inst, 'campus': sede,
+                        'total': c.execute('SELECT COUNT(*) n FROM students WHERE active=1 AND institute=? AND campus=?', (inst, sede)).fetchone()['n']})
+    c.close()
+    return render_template('students.html', students=data, q=q, institute=institute, campus=campus, summary=summary)
+
+
+@app.route('/docentes')
+@login_required
+@admin_required
+def teachers():
+    q = request.args.get('q', '').strip()
+    institute = normalize_institute(request.args.get('institute'))
+    campus = normalize_campus(request.args.get('campus'))
+    conditions, params = [], []
+    if q:
+        conditions.append('(name LIKE ? OR dni LIKE ? OR area LIKE ? OR email LIKE ?)')
+        params.extend([f'%{q}%', f'%{q}%', f'%{q}%', f'%{q}%'])
+    extra, extra_params = scope_filter('', institute, campus)
+    conditions.extend(extra); params.extend(extra_params)
+    where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
+    c = conn(); data = c.execute('SELECT * FROM teachers' + where + ' ORDER BY active DESC,institute,campus,name', tuple(params)).fetchall(); c.close()
+    return render_template('teachers.html', teachers=data, q=q, institute=institute, campus=campus)
+
+
+@app.route('/registros')
+@login_required
+@role_required('admin', 'security')
+def logs():
+    q = request.args.get('q', '').strip()
+    if session.get('role') == 'admin':
+        institute = normalize_institute(request.args.get('institute'))
+        campus = normalize_campus(request.args.get('campus'))
+    else:
+        _, campus = session_scope(); institute = ''
+    conditions, params = [], []
+    # En access_logs el alcance se guarda en registered_*.
+    # Seguridad trabaja por sede consolidada y puede registrar IDAT o ZEGEL.
+    if institute:
+        conditions.append('l.registered_institute=?'); params.append(institute)
+    if campus:
+        conditions.append('l.registered_campus=?'); params.append(campus)
+    if q:
+        conditions.append('(l.student_name LIKE ? OR l.student_dni LIKE ? OR l.student_code LIKE ? OR u.name LIKE ?)')
+        params.extend([f'%{q}%', f'%{q}%', f'%{q}%', f'%{q}%'])
+    where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
+    c = conn()
+    data = c.execute('''SELECT l.*,u.name user FROM access_logs l LEFT JOIN users u ON u.id=l.user_id''' +
+                     where + ' ORDER BY l.id DESC LIMIT 500', tuple(params)).fetchall()
+    c.close()
+    return render_template('logs.html', logs=data, q=q, institute=institute, campus=campus)
+
+
+@app.route('/importar/alumnos', methods=['POST'])
+@login_required
+@admin_required
+def import_excel():
+    file = request.files.get('file')
+    institute = normalize_institute(request.form.get('institute'))
+    campus = normalize_campus(request.form.get('campus'))
+    if not file or not file.filename.lower().endswith(('.xlsx', '.xlsm')):
+        flash('Sube un Excel válido .xlsx.', 'danger'); return redirect(url_for('dashboard'))
+    if not valid_branch(institute, campus):
+        flash('Selecciona una combinación válida de marca y sede antes de importar.', 'danger'); return redirect(url_for('dashboard'))
+    path = os.path.join(UPLOADS, secure_filename(f'{institute}_{CAMPUS_CODES[campus]}_{file.filename}'))
+    file.save(path)
+    try:
+        counts = import_students_from_excel(path, institute, campus)
+        total = sum(counts.values())
+        audit('IMPORTAR_ALUMNOS', 'students', None, f'{branch_label(institute, campus)} · {total} alumnos')
+        flash(f'Base actualizada: {total} alumnos activos en {branch_label(institute, campus)}.', 'success')
+    except Exception as exc:
+        flash(str(exc), 'danger')
+    return redirect(url_for('dashboard', institute=institute, campus=campus))
+
+
+@app.route('/importar/docentes', methods=['POST'])
+@login_required
+@admin_required
+def import_teachers():
+    file = request.files.get('file')
+    institute = normalize_institute(request.form.get('institute'))
+    campus = normalize_campus(request.form.get('campus'))
+    if not file or not file.filename.lower().endswith(('.xlsx', '.xlsm')):
+        flash('Sube un Excel válido .xlsx.', 'danger'); return redirect(url_for('teachers'))
+    if not valid_branch(institute, campus):
+        flash('Selecciona una combinación válida de marca y sede.', 'danger'); return redirect(url_for('teachers'))
+    path = os.path.join(UPLOADS, secure_filename(f'docentes_{institute}_{CAMPUS_CODES[campus]}_{file.filename}'))
+    file.save(path)
+    try:
+        count = import_teachers_from_excel(path, institute, campus)
+        audit('IMPORTAR_DOCENTES', 'teachers', None, f'{branch_label(institute, campus)} · {count} docentes')
+        flash(f'Base de docentes actualizada: {count} activos en {branch_label(institute, campus)}.', 'success')
+    except Exception as exc:
+        flash(str(exc), 'danger')
+    return redirect(url_for('teachers', institute=institute, campus=campus))
+
+
+def style_sheet(ws):
+    orange = PatternFill('solid', fgColor='F26B2F')
+    dark = PatternFill('solid', fgColor='172033')
+    thin = Side(style='thin', color='D9E0EA')
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color='FFFFFF')
+        cell.fill = orange
+        cell.alignment = Alignment(horizontal='center')
+        cell.border = Border(bottom=thin)
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            cell.border = Border(bottom=thin)
+            cell.alignment = Alignment(vertical='top')
+    for col in ws.columns:
+        max_len = 12
+        letter = col[0].column_letter
+        for cell in col:
+            max_len = max(max_len, len(str(cell.value or '')) + 2)
+        ws.column_dimensions[letter].width = min(max_len, 38)
+    ws.freeze_panes = 'A2'
+    ws.auto_filter.ref = ws.dimensions
+
+
+def build_brand_split_report(days=30, campus=''):
+    days = 30 if days not in (7, 30, 90, 365) else days
+    campus = normalize_campus(campus)
+    start = (now_dt() - timedelta(days=days)).isoformat(timespec='seconds')
+    end = now_iso()
+    c = conn()
+    wb = Workbook()
+    wb.remove(wb.active)
+
+    summary = wb.create_sheet('Resumen')
+    summary.append(['RIVA · Reporte de visitas por marca', 'IDAT + ZEGEL'])
+    summary.append(['Periodo', f'Últimos {days} días'])
+    summary.append(['Campus', campus_label(campus) if campus else 'TODOS'])
+    summary.append(['Generado', now_dt().strftime('%d/%m/%Y %H:%M')])
+    summary.append([])
+    summary.append(['Marca', 'Área', 'Total visitas'])
+
+    for brand in INSTITUTES:
+        for area in AREAS:
+            rows = combined_visit_rows(c, start, end, brand, campus, area)
+            summary.append([brand, area, len(rows)])
+            ws = wb.create_sheet(f'{brand}_{area}')
+            ws.append(['Fecha/Hora', 'Campus', 'Visitante', 'DNI', 'Teléfono', 'Área destino', 'Motivo', 'Status'])
+            for row in rows:
+                status = 'EN ATENCIÓN' if row['visit_status'] == 'NO ATENDIDO' else row['visit_status']
+                ws.append([row['created_at'], campus_label(row['campus']), row['full_name'], row['dni'],
+                           row['phone'] or '', row['destination_area'], row['reason'] or '', status])
+            style_sheet(ws)
+
+    c.close()
+    summary.column_dimensions['A'].width = 30
+    summary.column_dimensions['B'].width = 28
+    summary.column_dimensions['C'].width = 20
+    for cell in summary[1]:
+        cell.font = Font(bold=True, color='FFFFFF')
+        cell.fill = PatternFill('solid', fgColor='172033')
+    for cell in summary[6]:
+        cell.font = Font(bold=True, color='FFFFFF')
+        cell.fill = PatternFill('solid', fgColor='F26B2F')
+
+    filename = f'RIVA_visitas_IDAT_ZEGEL_{CAMPUS_CODES.get(campus,"TODOS")}_{days}dias_{now_dt().strftime("%Y%m%d_%H%M")}.xlsx'
+    path = os.path.join(UPLOADS, filename)
+    wb.save(path)
+    return path
+
+
+def build_report(kind='visitas', area='', institute='', campus='', days=30):
+    days = 30 if days not in (7, 30, 90, 365) else days
+    start = (now_dt() - timedelta(days=days)).isoformat(timespec='seconds')
+    end = now_iso()
+    c = conn(); wb = Workbook(); ws = wb.active
+    summary = wb.create_sheet('Resumen')
+    summary.append(['RIVA · Registro de Visitas y Asistencias', 'Reporte profesional'])
+    summary.append(['Periodo', f'Últimos {days} días'])
+    summary.append(['Marca', institute or 'Inlearning'])
+    summary.append(['Sede', campus_label(campus) if campus else 'TODAS'])
+    summary.append(['Área', area or 'TODAS'])
+    summary.append(['Generado', now_dt().strftime('%d/%m/%Y %H:%M')])
+    summary.column_dimensions['A'].width = 24; summary.column_dimensions['B'].width = 42
+    for cell in summary[1]:
+        cell.font = Font(bold=True, color='FFFFFF'); cell.fill = PatternFill('solid', fgColor='172033')
+
+    if kind == 'visitas':
+        ws.title = 'Visitas'
+        ws.append(['Fecha/Hora', 'Marca', 'Sede', 'Registró', 'Nombre visitante', 'DNI', 'Teléfono',
+                   'Área destino', 'Motivo', 'Status', 'Atendió', 'Actualizó status', 'Atendido en'])
+        conditions = ['v.created_at BETWEEN ? AND ?']; params = [start, end]
+        if area in AREAS:
+            conditions.append('v.destination_area=?'); params.append(area)
+        extra, extra_params = scope_filter('v', institute, campus)
+        conditions.extend(extra); params.extend(extra_params)
+        rows = c.execute('''SELECT v.*,ru.name registered_by,au.name attended_by,su.name status_updated_by
+                            FROM visitors v LEFT JOIN users ru ON ru.id=v.user_id
+                            LEFT JOIN users au ON au.id=v.attended_by_user_id
+                            LEFT JOIN users su ON su.id=v.status_updated_by_user_id
+                            WHERE ''' + ' AND '.join(conditions) + ' ORDER BY v.created_at DESC', tuple(params)).fetchall()
+        for row in rows:
+            ws.append([row['created_at'], row['institute'], campus_label(row['campus']), row['registered_by'] or '', row['full_name'],
+                       row['dni'], row['phone'] or '', row['destination_area'], row['reason'] or row['visit_type'] or '',
+                       row['visit_status'], row['attended_by'] or '', row['status_updated_by'] or '', row['attended_at'] or ''])
+        filename = f'RIVA_visitas_{institute or "TODOS"}_{CAMPUS_CODES.get(campus,"TODAS")}_{now_dt().strftime("%Y%m%d_%H%M")}.xlsx'
+    else:
+        ws.title = 'Alumnos'
+        ws.append(['Fecha/Hora', 'Marca registro', 'Sede registro', 'Registró', 'Consulta', 'Resultado',
+                   'Alumno', 'Marca alumno', 'Sede alumno', 'DNI', 'Código', 'Nota'])
+        conditions = ['l.created_at BETWEEN ? AND ?']; params = [start, end]
+        if institute:
+            conditions.append('l.registered_institute=?'); params.append(institute)
+        if campus:
+            conditions.append('l.registered_campus=?'); params.append(campus)
+        rows = c.execute('''SELECT l.*,u.name registered_by FROM access_logs l LEFT JOIN users u ON u.id=l.user_id
+                            WHERE ''' + ' AND '.join(conditions) + ' ORDER BY l.created_at DESC', tuple(params)).fetchall()
+        for row in rows:
+            ws.append([row['created_at'], row['registered_institute'], campus_label(row['registered_campus']), row['registered_by'] or '',
+                       row['query'], row['result'], row['student_name'] or '', row['student_institute'] or '',
+                       campus_label(row['student_campus']) if row['student_campus'] else '', row['student_dni'] or '', row['student_code'] or '', row['note'] or ''])
+        filename = f'RIVA_registros_{institute or "TODOS"}_{CAMPUS_CODES.get(campus,"TODAS")}_{now_dt().strftime("%Y%m%d_%H%M")}.xlsx'
+    c.close(); style_sheet(ws)
+    path = os.path.join(UPLOADS, filename); wb.save(path)
+    return path
+
+
+@app.route('/exportar/solicitudes')
+@login_required
+@role_required('admin', 'security')
+def export_registration_requests():
+    if session.get('role') == 'admin':
+        institute = normalize_institute(request.args.get('institute'))
+        campus = normalize_campus(request.args.get('campus'))
+        if institute and campus and not valid_branch(institute, campus):
+            campus = ''
+    else:
+        _, campus = session_scope(); institute = ''
+    conditions, params = [], []
+    if institute:
+        conditions.append('r.institute=?'); params.append(institute)
+    if campus:
+        conditions.append('r.campus=?'); params.append(campus)
+    where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
+    c = conn()
+    rows = c.execute('''SELECT r.*,u.name requester_name,rv.name reviewer_name
+                        FROM registration_requests r
+                        LEFT JOIN users u ON u.id=r.requester_user_id
+                        LEFT JOIN users rv ON rv.id=r.reviewed_by_user_id''' + where +
+                     ' ORDER BY r.created_at DESC', tuple(params)).fetchall()
+    c.close()
+    wb = Workbook(); ws = wb.active; ws.title = 'Solicitudes'
+    ws.append(['Fecha', 'Marca', 'Sede', 'Tipo', 'Nombre', 'DNI', 'Código', 'Teléfono',
+               'Detalle', 'Solicitó', 'Estado', 'Revisó', 'Fecha revisión'])
+    for row in rows:
+        ws.append([row['created_at'], row['institute'], campus_label(row['campus']), row['request_type'], row['full_name'],
+                   row['dni'], row['code'] or '', row['phone'] or '', row['detail'] or '',
+                   row['requester_name'] or '', row['status'], row['reviewer_name'] or '', row['reviewed_at'] or ''])
+    style_sheet(ws)
+    filename = f'RIVA_solicitudes_{institute or "TODOS"}_{CAMPUS_CODES.get(campus,"TODAS")}_{now_dt().strftime("%Y%m%d_%H%M")}.xlsx'
+    path = os.path.join(UPLOADS, filename); wb.save(path)
+    return send_file(path, as_attachment=True)
+
+
+@app.route('/exportar')
+@login_required
+@role_required('admin', 'security')
+def export_excel():
+    if session.get('role') == 'admin':
+        institute = normalize_institute(request.args.get('institute'))
+        campus = normalize_campus(request.args.get('campus'))
+    else:
+        _, campus = session_scope(); institute = ''
+    try:
+        days = int(request.args.get('days', '30'))
+    except ValueError:
+        days = 30
+    return send_file(build_report('registros', institute=institute, campus=campus, days=days), as_attachment=True)
+
+
+@app.route('/exportar/visitas-mensual')
+@login_required
+@role_required('admin', 'sae', 'commercial')
+def export_monthly_visits():
+    role = session.get('role')
+    month_value = normalize_month(request.args.get('month'))
+    if role == 'admin':
+        institute = normalize_institute(request.args.get('institute'))
+        campus = normalize_campus(request.args.get('campus'))
+        area = request.args.get('area', '').strip().upper()
+        if area not in AREAS:
+            area = ''
+    else:
+        _, campus = session_scope(); institute = ''
+        area = 'SAE' if role == 'sae' else 'COMERCIAL'
+    return send_file(build_monthly_visit_report(month_value, institute, campus, area), as_attachment=True)
+
+
+@app.route('/importar/visitas-mensuales', methods=['POST'])
+@login_required
+@admin_required
+def import_monthly_visits():
+    file = request.files.get('file')
+    if not file or not file.filename.lower().endswith(('.xlsx', '.xlsm')):
+        flash('Sube un informe mensual RIVA en formato Excel.', 'danger')
+        return redirect(url_for('dashboard'))
+    path = os.path.join(UPLOADS, secure_filename('acumulado_' + file.filename))
+    file.save(path)
+    try:
+        added, skipped = import_monthly_visit_report(path)
+        audit('IMPORTAR_VISITAS_MENSUALES', 'visit_archive', None, f'{added} agregadas · {skipped} omitidas')
+        flash(f'Histórico actualizado: {added} visitas agregadas. {skipped} registros duplicados o inválidos fueron omitidos.', 'success')
+    except Exception as exc:
+        flash(str(exc), 'danger')
+    return redirect(url_for('dashboard'))
+
+
+@app.route('/pantalla-tv')
+@login_required
+@role_required('admin', 'display')
+def tv_board():
+    campus = normalize_campus(request.args.get('campus') if session.get('role') == 'admin' else session.get('campus'), 'SJM')
+    payload = build_tv_payload(campus)
+    return render_template('tv_board.html', payload=payload, campus=campus, admin_preview=session.get('role') == 'admin')
+
+
+@app.route('/api/pantalla-tv')
+@login_required
+@role_required('admin', 'display')
+def tv_board_api():
+    campus = normalize_campus(request.args.get('campus') if session.get('role') == 'admin' else session.get('campus'), 'SJM')
+    return jsonify(build_tv_payload(campus))
+
+
+@app.route('/exportar/visitas-marcas')
+@login_required
+@admin_required
+def export_brand_split_visits():
+    campus = normalize_campus(request.args.get('campus'))
+    try:
+        days = int(request.args.get('days', '30'))
+    except ValueError:
+        days = 30
+    return send_file(build_brand_split_report(days=days, campus=campus), as_attachment=True)
+
+
+@app.route('/exportar/visitas')
+@login_required
+@role_required('admin', 'sae', 'commercial')
+def export_visits_excel():
+    role = session.get('role')
+    if role == 'admin':
+        institute = normalize_institute(request.args.get('institute'))
+        campus = normalize_campus(request.args.get('campus'))
+        area = request.args.get('area', '').strip().upper()
+        if area not in AREAS:
+            area = ''
+    else:
+        _, campus = session_scope(); institute = ''
+        area = 'SAE' if role == 'sae' else 'COMERCIAL'
+    try:
+        days = int(request.args.get('days', '30'))
+    except ValueError:
+        days = 30
+    return send_file(build_report('visitas', area=area, institute=institute, campus=campus, days=days), as_attachment=True)
+
+
+init_db()
+
+if __name__ == '__main__':
+    app.run(debug=True)

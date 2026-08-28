@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block content %}
+<header class="easyHero securityScopeHero securitySiteHero">
+  <div>
+    <span class="heroLabel">🛡 SEGURIDAD</span>
+    <h1><strong>RIVA</strong> Registro de Visitas y Asistencias</h1>
+    <p><b>Sede {{site_label(campus)}}</b> · atención Inlearning</p>
+  </div>
+  <div class="securitySiteBadge"><small>SEDE ASIGNADA</small><b>{{site_label(campus)}}</b><span>Marca se elige al registrar</span></div>
+</header>
+
+
+<section class="brandHintCard">
+  <div><span class="brandHintIcon">🏷️</span><div><small>NUEVA LÓGICA DE REGISTRO</small><b>Selecciona la marca de visita</b><p>La operación pertenece a Inlearning - {{site_label(campus)}}.</p></div></div>
+  <div class="brandChoicePreview"><span class="brandPill idatBrand">IDAT</span><span class="brandPill zegelBrand">ZEGEL</span></div>
+</section>
+
+<section class="securityActions">
+  <a class="actionBig" href="{{url_for('consulta')}}"><span>🎓</span><b>Registrar alumno</b><small>Marca IDAT o ZEGEL · Sede {{site_label(campus)}}.</small></a>
+  <a class="actionBig docente" href="{{url_for('teacher_check')}}"><span>🏫</span><b>Registrar docente</b><small>Elige la marca antes de validar el ingreso.</small></a>
+  <a class="actionBig sae" href="{{url_for('new_visitor',area='SAE')}}"><span>🎓</span><b>Visita SAE</b><small>Destino SAE fijo · Marca seleccionable.</small></a>
+  <a class="actionBig comercial" href="{{url_for('new_visitor',area='COMERCIAL')}}"><span>💼</span><b>Visita Comercial</b><small>Destino Comercial fijo · Marca seleccionable.</small></a>
+</section>
+{% endblock %}

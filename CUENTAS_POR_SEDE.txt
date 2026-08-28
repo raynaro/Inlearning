@@ -1,0 +1,72 @@
+RIVA · CUENTAS INLEARNING POR CAMPUS
+====================================
+
+Administrador general
+Usuario: admin@idat.edu.pe
+Contraseña: admin123
+
+Todas las cuentas operativas usan inicialmente:
+Contraseña: Riva1234
+
+CAMPUS LIMA SUR · SJM
+---------------------
+Seguridad
+- seguridad.sjm@pdr.local            | SEG-SJM-01
+
+SAE
+- sae.sjm.01@pdr.local               | SAE-SJM-01
+- sae.sjm.02@pdr.local               | SAE-SJM-02
+- sae.sjm.03@pdr.local               | SAE-SJM-03
+
+Comercial
+- comercial.sjm.01@pdr.local         | COM-SJM-01
+- comercial.sjm.02@pdr.local         | COM-SJM-02
+- comercial.sjm.03@pdr.local         | COM-SJM-03
+
+Pantalla TV
+- pantalla.sjm@pdr.local             | TV-SJM-01
+
+CAMPUS LIMA ESTE · ATE
+----------------------
+Seguridad
+- seguridad.ate@pdr.local            | SEG-ATE-01
+
+SAE
+- sae.ate.01@pdr.local               | SAE-ATE-01
+- sae.ate.02@pdr.local               | SAE-ATE-02
+- sae.ate.03@pdr.local               | SAE-ATE-03
+
+Comercial
+- comercial.ate.01@pdr.local         | COM-ATE-01
+- comercial.ate.02@pdr.local         | COM-ATE-02
+- comercial.ate.03@pdr.local         | COM-ATE-03
+
+Pantalla TV
+- pantalla.ate@pdr.local             | TV-ATE-01
+
+CAMPUS LIMA NORTE · SJL
+-----------------------
+Seguridad
+- seguridad.sjl@pdr.local            | SEG-SJL-01
+
+SAE
+- sae.sjl.01@pdr.local               | SAE-SJL-01
+- sae.sjl.02@pdr.local               | SAE-SJL-02
+- sae.sjl.03@pdr.local               | SAE-SJL-03
+
+Comercial
+- comercial.sjl.01@pdr.local         | COM-SJL-01
+- comercial.sjl.02@pdr.local         | COM-SJL-02
+- comercial.sjl.03@pdr.local         | COM-SJL-03
+
+Pantalla TV
+- pantalla.sjl@pdr.local             | TV-SJL-01
+
+FUNCIONAMIENTO
+- Seguridad trabaja únicamente en su campus y mantiene sus funciones de registro.
+- SAE visualiza y gestiona las visitas SAE de su campus.
+- Comercial visualiza y gestiona las visitas Comercial de su campus.
+- Administración puede crear, editar, desactivar y eliminar usuarios por campus.
+- La marca del visitante puede seguir registrándose en los formularios donde corresponde, pero la cuenta del trabajador se identifica como Inlearning.
+
+- Pantalla TV muestra únicamente el turno, nombre del visitante, módulo y asesor SAE asignado.

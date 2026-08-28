@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card consult visitorEntryCard brandAwareForm">
+  <div class="sectionBrand"><strong>RIVA</strong><span>Registro de Visitas y Asistencias</span></div>
+  <div class="sectionHead">
+    <div><h2>Registro de visita nueva</h2><p>Selecciona la <b>Marca</b>; la sede física ya está definida.</p></div>
+    <span class="scopeTag">📍 {{site_label(campus)}}</span>
+  </div>
+
+  <div class="registrationScopeStrip">
+    <div><small>SEDE</small><b>{{site_label(campus)}}</b></div>
+    <div><small>MARCA DE VISITA</small><b>IDAT / ZEGEL</b></div>
+    <div><small>DESTINO</small><b>{{'Comercial' if selected_area=='COMERCIAL' else ('SAE' if selected_area=='SAE' else 'Por elegir')}}</b></div>
+  </div>
+
+  <form method="post" class="formgrid scaleVisitorForm" id="visitorForm">
+    <label class="fieldGroup brandField"><span>Marca *</span><select name="institute" required>
+      <option value="">Seleccionar Marca</option>
+      {% for inst in institutes %}<option value="{{inst}}" {% if institute==inst %}selected{% endif %}>{{inst}}</option>{% endfor %}
+    </select></label>
+    {% if session.get('role')=='admin' %}
+      <label class="fieldGroup"><span>Sede *</span><select name="campus" required>{% for sede in campuses %}<option value="{{sede}}" {% if campus==sede %}selected{% endif %}>{{site_label(sede)}}</option>{% endfor %}</select></label>
+    {% else %}
+      <input type="hidden" name="campus" value="{{campus}}">
+      <div class="lockedSiteField"><small>SEDE ASIGNADA</small><b>📍 {{site_label(campus)}}</b></div>
+    {% endif %}
+
+    <input name="full_name" placeholder="Nombres completos" required>
+    <input name="dni" placeholder="DNI" inputmode="numeric" required>
+    <input name="phone" placeholder="Teléfono" inputmode="tel" required>
+
+    {% if selected_area in ['SAE','COMERCIAL'] %}
+      <input type="hidden" name="destination_area" id="destinationArea" value="{{selected_area}}">
+      <div class="lockedDestination {{'lockedCommercial' if selected_area=='COMERCIAL' else 'lockedSae'}}"><span>{{'💼' if selected_area=='COMERCIAL' else '🎓'}}</span><div><small>DESTINO DE LA VISITA</small><b>{{'Comercial' if selected_area=='COMERCIAL' else 'SAE'}}</b></div><em>Destino fijo</em></div>
+    {% else %}
+      <select name="destination_area" id="destinationArea" required><option value="">Destino de la visita</option><option value="SAE">SAE</option><option value="COMERCIAL">COMERCIAL</option></select>
+    {% endif %}
+
+    <select name="commercial_reason" id="commercialReason" class="commercialType"><option value="">Motivo de Comercial</option><option value="CARRERA">Carrera</option><option value="CURSO">Curso</option></select>
+    <input name="reason" id="standardReason" placeholder="Motivo u observación para SAE">
+    <button class="visitorSubmit">Registrar visita</button>
+  </form>
+</section>
+<script>(function(){const a=document.getElementById('destinationArea'),c=document.getElementById('commercialReason'),r=document.getElementById('standardReason');if(!a)return;function set(){const commercial=a.value==='COMERCIAL';c.style.display=commercial?'block':'none';c.required=commercial;r.style.display=commercial?'none':'block';if(commercial)r.value=''}if(a.tagName==='SELECT')a.addEventListener('change',set);set()})();</script>
+{% endblock %}

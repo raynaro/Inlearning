@@ -1,0 +1,16 @@
+RIVA · Accesos Inlearning por Campus
+===================================
+
+Administrador general
+Usuario: admin@idat.edu.pe
+Contraseña: admin123
+
+Las cuentas operativas actualizadas están detalladas en:
+CUENTAS_POR_SEDE.txt
+
+IMPORTANTE
+- Los usuarios operativos pertenecen a Inlearning y a un campus, sin separación de cuenta por IDAT/ZEGEL.
+- Lima Sur = SJM
+- Lima Este = ATE
+- Lima Norte = SJL
+- Cambia las contraseñas antes de publicar el sistema.

@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <title>RIVA · Turnos SAE · {{ payload.site_name }}</title>
+  <style>
+    :root{
+      --bg:#07101f;
+      --bg-soft:#0c1830;
+      --surface:#0e1a31;
+      --surface-2:#13223d;
+      --line:rgba(255,255,255,.10);
+      --text:#f8fbff;
+      --muted:#9fb0c7;
+      --cyan:#3ec6e9;
+      --cyan-2:#8be7fa;
+      --green:#42d392;
+      --amber:#ffcf5c;
+      --shadow:0 24px 70px rgba(0,0,0,.28);
+    }
+
+    *{box-sizing:border-box}
+    html,body{width:100%;min-height:100%;margin:0}
+    body{
+      font-family:Inter,Segoe UI,Arial,sans-serif;
+      color:var(--text);
+      background:
+        radial-gradient(circle at 12% 0%,rgba(62,198,233,.12),transparent 28%),
+        radial-gradient(circle at 88% 18%,rgba(66,211,146,.08),transparent 22%),
+        linear-gradient(145deg,#07101f 0%,#091426 48%,#07101f 100%);
+      overflow-x:hidden;
+    }
+
+    .tvApp{min-height:100vh;padding:clamp(18px,2vw,34px);display:grid;grid-template-rows:auto auto 1fr auto;gap:clamp(14px,1.5vw,24px)}
+
+    .tvHeader{display:flex;align-items:flex-start;justify-content:space-between;gap:24px}
+    .brandEyebrow{display:flex;align-items:center;gap:10px;font-size:clamp(12px,1vw,15px);font-weight:800;letter-spacing:.13em;color:var(--cyan-2);text-transform:uppercase}
+    .liveDot{width:9px;height:9px;border-radius:999px;background:var(--green);box-shadow:0 0 0 7px rgba(66,211,146,.12);animation:pulse 1.8s ease-in-out infinite}
+    @keyframes pulse{50%{box-shadow:0 0 0 11px rgba(66,211,146,.02)}}
+    .brandTitle{margin:10px 0 5px;font-size:clamp(32px,3.2vw,56px);line-height:.98;letter-spacing:-.045em;font-weight:800}
+    .brandSubtitle{margin:0;color:var(--muted);font-size:clamp(15px,1.25vw,20px)}
+
+    .clockBox{text-align:right;min-width:220px}
+    .clockTime{font-size:clamp(32px,3.4vw,54px);font-weight:800;letter-spacing:-.04em;line-height:1}
+    .clockDate{margin-top:7px;color:var(--muted);font-size:clamp(14px,1.1vw,18px);text-transform:capitalize}
+    .campusTag{display:inline-flex;margin-top:12px;padding:8px 13px;border-radius:999px;background:rgba(62,198,233,.10);border:1px solid rgba(62,198,233,.18);color:var(--cyan-2);font-weight:800;font-size:14px}
+
+    .statsStrip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+    .stat{display:flex;align-items:center;gap:13px;padding:12px 16px;border:1px solid var(--line);background:rgba(14,26,49,.72);border-radius:17px;min-height:70px}
+    .statIcon{width:40px;height:40px;border-radius:13px;display:grid;place-items:center;background:rgba(255,255,255,.06);font-size:19px}
+    .stat b{display:block;font-size:clamp(20px,1.8vw,29px);line-height:1}.stat span{display:block;color:var(--muted);font-size:13px;margin-top:4px}
+
+    .contentGrid{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(340px,.75fr);gap:clamp(14px,1.5vw,24px);min-height:0}
+    .panel{min-height:0;background:rgba(9,19,37,.76);border:1px solid var(--line);border-radius:26px;box-shadow:var(--shadow);overflow:hidden}
+    .panelHeader{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:18px 22px;border-bottom:1px solid var(--line)}
+    .panelHeader h2{margin:0;font-size:clamp(20px,1.55vw,27px);letter-spacing:-.02em}
+    .panelHeader p{margin:4px 0 0;color:var(--muted);font-size:13px}
+    .panelHeaderBadge{flex:0 0 auto;padding:8px 12px;border-radius:999px;background:rgba(255,207,92,.10);border:1px solid rgba(255,207,92,.20);color:var(--amber);font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+
+    .activeArea{padding:clamp(14px,1.5vw,24px);height:calc(100% - 76px);overflow:auto}
+    .activeGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:clamp(14px,1.25vw,20px)}
+    .callCard{position:relative;isolation:isolate;min-height:clamp(250px,28vh,360px);padding:clamp(20px,2vw,32px);border-radius:24px;border:1px solid rgba(62,198,233,.25);background:linear-gradient(160deg,rgba(26,60,92,.82),rgba(11,27,51,.94));overflow:hidden;display:grid;grid-template-columns:1fr auto;gap:16px;align-items:stretch}
+    .callCard:before{content:"";position:absolute;inset:auto -10% -55% 35%;height:120%;background:radial-gradient(circle,rgba(62,198,233,.18),transparent 62%);z-index:-1}
+    .callCard.is-new-call{animation:newCall 1s ease both}
+    @keyframes newCall{0%{transform:scale(.985);box-shadow:0 0 0 rgba(62,198,233,0)}45%{transform:scale(1.01);box-shadow:0 0 0 5px rgba(62,198,233,.15)}100%{transform:scale(1)}}
+
+    .callMain{display:flex;flex-direction:column;justify-content:space-between;min-width:0}
+    .callKicker{display:flex;align-items:center;gap:10px;color:var(--cyan-2);font-size:12px;font-weight:800;letter-spacing:.09em;text-transform:uppercase}
+    .callKicker i{width:8px;height:8px;border-radius:99px;background:var(--green);box-shadow:0 0 0 6px rgba(66,211,146,.10)}
+    .turnPrefix{margin-top:14px;color:var(--muted);font-size:clamp(13px,1vw,16px);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+    .turnNumber{font-size:clamp(78px,8.5vw,145px);font-weight:900;line-height:.82;letter-spacing:-.075em;margin:8px 0 14px;text-shadow:0 8px 24px rgba(0,0,0,.22)}
+    .personRow{display:flex;align-items:center;gap:13px;min-width:0}
+    .avatar{width:50px;height:50px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(145deg,rgba(255,255,255,.14),rgba(255,255,255,.05));border:1px solid rgba(255,255,255,.12);font-size:24px;flex:0 0 auto}
+    .personText{min-width:0}.personText small{display:block;color:var(--muted);font-size:12px;margin-bottom:3px}.personName{font-size:clamp(21px,2vw,34px);font-weight:800;line-height:1.06;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+    .moduleBox{align-self:stretch;min-width:clamp(150px,14vw,240px);border-radius:22px;background:linear-gradient(180deg,rgba(62,198,233,.16),rgba(62,198,233,.06));border:1px solid rgba(62,198,233,.22);display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:18px}
+    .moduleBox small{color:var(--cyan-2);font-weight:800;letter-spacing:.09em;text-transform:uppercase;font-size:12px}
+    .moduleNumber{margin:10px 0 7px;font-size:clamp(38px,4vw,70px);font-weight:900;line-height:.95;letter-spacing:-.05em}
+    .moduleAdvisor{color:var(--muted);font-size:clamp(12px,1vw,15px);line-height:1.25;max-width:180px}
+
+    .queuePanel{display:flex;flex-direction:column;min-height:0}
+    .queueBody{padding:13px 14px 16px;display:flex;flex-direction:column;gap:10px;overflow:auto}
+    .queueItem{display:grid;grid-template-columns:78px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 13px;border-radius:17px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.045)}
+    .queueTurn{font-size:clamp(23px,2vw,31px);font-weight:900;color:var(--cyan-2);letter-spacing:-.03em}
+    .queuePerson{min-width:0}.queuePerson b{display:block;font-size:clamp(15px,1.15vw,19px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.queuePerson small{display:block;color:var(--muted);font-size:12px;margin-top:3px}
+    .queuePos{padding:7px 10px;border-radius:999px;background:rgba(255,255,255,.06);color:var(--muted);font-size:11px;font-weight:800;white-space:nowrap}
+
+    .emptyState{height:100%;min-height:230px;display:grid;place-items:center;text-align:center;padding:28px;color:var(--muted);border:1px dashed rgba(255,255,255,.12);border-radius:20px;background:rgba(255,255,255,.025)}
+    .emptyState span{display:block;font-size:38px;margin-bottom:11px}.emptyState b{display:block;color:var(--text);font-size:20px;margin-bottom:7px}
+
+    .tvFooter{display:flex;align-items:center;justify-content:space-between;gap:16px;color:var(--muted);font-size:12px}
+    .privacyNote{display:flex;align-items:center;gap:8px}.privacyNote i{width:7px;height:7px;border-radius:999px;background:var(--green)}
+    .controls{display:flex;align-items:center;gap:8px}
+    .controlBtn,.campusSelect{height:38px;border-radius:11px;border:1px solid var(--line);background:rgba(255,255,255,.05);color:var(--text);padding:0 12px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:7px}
+    .controlBtn:hover,.campusSelect:hover{background:rgba(255,255,255,.08)}
+    .soundOn{border-color:rgba(66,211,146,.28);color:#a8f0c9;background:rgba(66,211,146,.08)}
+    .campusSelect option{color:#111}
+
+    @media(max-width:1180px){
+      .contentGrid{grid-template-columns:1fr}.queuePanel{max-height:44vh}.statsStrip{grid-template-columns:repeat(2,1fr)}
+    }
+    @media(max-width:760px){
+      .tvHeader{flex-direction:column}.clockBox{text-align:left}.statsStrip{grid-template-columns:1fr 1fr}.callCard{grid-template-columns:1fr}.moduleBox{min-height:140px}.tvFooter{flex-direction:column;align-items:flex-start}.controls{flex-wrap:wrap}
+    }
+  </style>
+</head>
+<body>
+<div class="tvApp">
+  <header class="tvHeader">
+    <div>
+      <div class="brandEyebrow"><span class="liveDot"></span> RIVA · Atención SAE en tiempo real</div>
+      <h1 class="brandTitle">Turnos de atención</h1>
+      <p class="brandSubtitle">Revise su turno y acérquese al módulo indicado.</p>
+    </div>
+    <div class="clockBox">
+      <div class="clockTime" id="liveClock">--:--</div>
+      <div class="clockDate" id="liveDate">--</div>
+      <div class="campusTag" id="campusTag">{{ payload.site_name }}</div>
+    </div>
+  </header>
+
+  <section class="statsStrip">
+    <div class="stat"><div class="statIcon">●</div><div><b id="metaActive">{{ payload.active_total }}</b><span>En atención</span></div></div>
+    <div class="stat"><div class="statIcon">≡</div><div><b id="metaWaiting">{{ payload.waiting_total }}</b><span>En espera</span></div></div>
+    <div class="stat"><div class="statIcon">✓</div><div><b id="metaServed">{{ payload.served_today }}</b><span>Atendidos hoy</span></div></div>
+    <div class="stat"><div class="statIcon">↻</div><div><b id="metaTime">{{ payload.updated_at }}</b><span>Última actualización</span></div></div>
+  </section>
+
+  <main class="contentGrid">
+    <section class="panel">
+      <div class="panelHeader">
+        <div><h2>Llamado actual</h2><p>Personas que deben acercarse a su módulo.</p></div>
+        <span class="panelHeaderBadge">Atención activa</span>
+      </div>
+      <div class="activeArea">
+        <div class="activeGrid" id="activeCalls">
+          {% if payload.active_calls %}
+            {% for item in payload.active_calls %}
+            <article class="callCard" data-call-id="{{ item.id }}">
+              <div class="callMain">
+                <div>
+                  <div class="callKicker"><i></i> Pase a atención</div>
+                  <div class="turnPrefix">Turno</div>
+                  <div class="turnNumber">{{ '%03d'|format(item.turn_number) }}</div>
+                </div>
+                <div class="personRow">
+                  <div class="avatar">👤</div>
+                  <div class="personText"><small>Visitante</small><div class="personName">{{ item.full_name }}</div></div>
+                </div>
+              </div>
+              <div class="moduleBox">
+                <small>Acérquese a</small>
+                <div class="moduleNumber">{{ item.service_module }}</div>
+                <div class="moduleAdvisor">Atiende: {{ item.current_sae_name }}</div>
+              </div>
+            </article>
+            {% endfor %}
+          {% else %}
+            <div class="emptyState"><div><span>◷</span><b>Sin llamados activos</b>Los próximos turnos aparecerán aquí automáticamente.</div></div>
+          {% endif %}
+        </div>
+      </div>
+    </section>
+
+    <section class="panel queuePanel">
+      <div class="panelHeader">
+        <div><h2>Próximos turnos</h2><p>Orden actual de espera.</p></div>
+        <span class="panelHeaderBadge">En cola</span>
+      </div>
+      <div class="queueBody" id="waitingList">
+        {% if payload.waiting %}
+          {% for item in payload.waiting %}
+          <div class="queueItem">
+            <div class="queueTurn">{{ '%03d'|format(item.turn_number) }}</div>
+            <div class="queuePerson"><b>{{ item.full_name }}</b><small>Turno en espera</small></div>
+            <div class="queuePos">N.º {{ item.queue_order }}</div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="emptyState"><div><span>✓</span><b>Sin cola de espera</b>No hay turnos pendientes en este momento.</div></div>
+        {% endif %}
+      </div>
+    </section>
+  </main>
+
+  <footer class="tvFooter">
+    <div class="privacyNote"><i></i> Vista pública protegida: no se muestran DNI, teléfono ni marca del visitante.</div>
+    <div class="controls">
+      {% if admin_preview %}
+      <form method="get">
+        <select class="campusSelect" name="campus" onchange="this.form.submit()">
+          {% for code in campuses %}<option value="{{code}}" {% if campus==code %}selected{% endif %}>{{site_label(code)}}</option>{% endfor %}
+        </select>
+      </form>
+      <a class="controlBtn" href="{{url_for('visitors', campus=campus, area='SAE')}}">Volver a visitas</a>
+      {% endif %}
+      <button class="controlBtn" type="button" id="soundToggle">🔔 Activar sonido</button>
+      <button class="controlBtn" type="button" id="fullscreenBtn">⛶ Pantalla completa</button>
+      <a class="controlBtn" href="{{url_for('logout')}}">Cerrar sesión</a>
+    </div>
+  </footer>
+</div>
+
+<script>
+const apiUrl = {{ url_for('tv_board_api', campus=campus)|tojson }};
+let previousActiveIds = new Set({{ payload.active_calls|map(attribute='id')|list|tojson }});
+let soundEnabled = localStorage.getItem('rivaTvSound') === 'on';
+let audioCtx = null;
+
+function esc(value){
+  return String(value ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+}
+function moduleLabel(value){ return esc(value || 'Módulo'); }
+function formatTurn(value){ return String(Number(value)||0).padStart(3,'0'); }
+
+function updateClock(){
+  const now=new Date();
+  document.getElementById('liveClock').textContent=now.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit',hour12:false});
+  document.getElementById('liveDate').textContent=now.toLocaleDateString('es-PE',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+}
+updateClock();setInterval(updateClock,1000);
+
+function paintSound(){
+  const btn=document.getElementById('soundToggle');
+  btn.classList.toggle('soundOn',soundEnabled);
+  btn.textContent=soundEnabled?'🔔 Sonido activo':'🔕 Activar sonido';
+}
+function unlockAudio(){
+  try{audioCtx=audioCtx||new(window.AudioContext||window.webkitAudioContext)();if(audioCtx.state==='suspended')audioCtx.resume()}catch(e){}
+}
+function playCallChime(){
+  if(!soundEnabled)return;
+  unlockAudio(); if(!audioCtx)return;
+  const start=audioCtx.currentTime;
+  [659,784,988].forEach((freq,i)=>{
+    const osc=audioCtx.createOscillator(),gain=audioCtx.createGain();
+    osc.type='sine';osc.frequency.value=freq;osc.connect(gain);gain.connect(audioCtx.destination);
+    gain.gain.setValueAtTime(.0001,start+i*.16);gain.gain.exponentialRampToValueAtTime(.16,start+i*.16+.02);gain.gain.exponentialRampToValueAtTime(.0001,start+i*.16+.31);
+    osc.start(start+i*.16);osc.stop(start+i*.16+.34);
+  });
+}
+function announceCall(item){
+  if(!soundEnabled || !('speechSynthesis' in window))return;
+  const moduleText=String(item.service_module||'módulo').replace(/Módulo/i,'módulo');
+  const message=new SpeechSynthesisUtterance(`Turno ${formatTurn(item.turn_number)}. Acérquese al ${moduleText}.`);
+  message.lang='es-PE';message.rate=.92;message.pitch=1;message.volume=.9;
+  setTimeout(()=>{try{speechSynthesis.cancel();speechSynthesis.speak(message)}catch(e){}},620);
+}
+const soundBtn=document.getElementById('soundToggle');
+soundBtn.addEventListener('click',()=>{soundEnabled=!soundEnabled;localStorage.setItem('rivaTvSound',soundEnabled?'on':'off');unlockAudio();paintSound();if(soundEnabled)playCallChime()});
+paintSound();
+
+const fsBtn=document.getElementById('fullscreenBtn');
+fsBtn.addEventListener('click',async()=>{
+  try{
+    if(!document.fullscreenElement){await document.documentElement.requestFullscreen();fsBtn.textContent='⛶ Salir de pantalla completa'}
+    else{await document.exitFullscreen();fsBtn.textContent='⛶ Pantalla completa'}
+  }catch(e){}
+});
+document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement)fsBtn.textContent='⛶ Pantalla completa'});
+
+function renderActive(items,newIds=new Set()){
+  const box=document.getElementById('activeCalls');
+  if(!items.length){box.innerHTML='<div class="emptyState"><div><span>◷</span><b>Sin llamados activos</b>Los próximos turnos aparecerán aquí automáticamente.</div></div>';return;}
+  box.innerHTML=items.map(item=>`<article class="callCard ${newIds.has(item.id)?'is-new-call':''}" data-call-id="${esc(item.id)}"><div class="callMain"><div><div class="callKicker"><i></i> Pase a atención</div><div class="turnPrefix">Turno</div><div class="turnNumber">${formatTurn(item.turn_number)}</div></div><div class="personRow"><div class="avatar">👤</div><div class="personText"><small>Visitante</small><div class="personName">${esc(item.full_name)}</div></div></div></div><div class="moduleBox"><small>Acérquese a</small><div class="moduleNumber">${moduleLabel(item.service_module)}</div><div class="moduleAdvisor">Atiende: ${esc(item.current_sae_name)}</div></div></article>`).join('');
+}
+function renderWaiting(items){
+  const box=document.getElementById('waitingList');
+  if(!items.length){box.innerHTML='<div class="emptyState"><div><span>✓</span><b>Sin cola de espera</b>No hay turnos pendientes en este momento.</div></div>';return;}
+  box.innerHTML=items.map(item=>`<div class="queueItem"><div class="queueTurn">${formatTurn(item.turn_number)}</div><div class="queuePerson"><b>${esc(item.full_name)}</b><small>Turno en espera</small></div><div class="queuePos">N.º ${esc(item.queue_order)}</div></div>`).join('');
+}
+function renderPayload(data){
+  const currentIds=new Set((data.active_calls||[]).map(x=>x.id));
+  const newIds=new Set([...currentIds].filter(id=>!previousActiveIds.has(id)));
+  if(newIds.size){
+    playCallChime();
+    const firstNew=(data.active_calls||[]).find(item=>newIds.has(item.id));
+    if(firstNew)announceCall(firstNew);
+  }
+  previousActiveIds=currentIds;
+  document.getElementById('campusTag').textContent=data.site_name;
+  document.getElementById('metaActive').textContent=data.active_total;
+  document.getElementById('metaWaiting').textContent=data.waiting_total;
+  document.getElementById('metaServed').textContent=data.served_today;
+  document.getElementById('metaTime').textContent=data.updated_at;
+  renderActive(data.active_calls||[],newIds);
+  renderWaiting(data.waiting||[]);
+}
+async function refreshBoard(){
+  try{
+    const response=await fetch(apiUrl,{cache:'no-store',headers:{'Accept':'application/json'}});
+    if(!response.ok)return;
+    renderPayload(await response.json());
+  }catch(e){}
+}
+setInterval(refreshBoard,3500);
+</script>
+</body>
+</html>

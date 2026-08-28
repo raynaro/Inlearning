@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block content %}
+<header class="top adminHero proHero multiHero">
+  <div><span class="heroLabel">🏢 ESTRUCTURA OPERATIVA</span><h1>Campus Inlearning</h1><p class="heroScopeText">Lima Sur, Lima Este y Lima Norte trabajan bajo una sola estructura operativa Inlearning.</p></div>
+  <div class="heroButtons"><a class="btn lightBtn" href="{{url_for('dashboard')}}">Volver al panel</a><a class="btn lightBtn" href="{{url_for('register')}}">Crear usuario</a></div>
+</header>
+
+<section class="card scaleNotice mergedSitesNotice">
+  <strong>Estructura actual:</strong> cada usuario operativo pertenece a un <b>Campus Inlearning</b>. SAE, Comercial y Seguridad trabajan con las mismas funciones dentro del campus asignado.
+</section>
+
+<section class="branchInstituteSection consolidatedSitesSection">
+  <div class="sectionHead"><div><h2>3 campus operativos</h2><p>Control consolidado de usuarios y visitas por campus.</p></div><span class="brandPairBadge">INLEARNING</span></div>
+  <div class="branchCardGrid consolidatedSiteGrid">
+    {% for b in branch_cards %}
+    <a class="branchControlCard mergedBranch" href="{{url_for('branch_detail', campus=b.campus)}}">
+      <div class="branchCardHead"><span class="branchPin">📍</span><div><small>CAMPUS</small><b>{{b.site_name}}</b></div></div>
+      <div class="mergedBrandsRow"><span class="brandPill">Inlearning</span></div>
+      <div class="branchRoleStrip"><span>🛡 {{b.security}} Seguridad</span><span>🎓 {{b.sae}} SAE</span><span>💼 {{b.commercial}} Comercial</span></div>
+      <div class="branchMetrics"><span><strong>{{b.visits_today}}</strong> visitas hoy</span><span><strong>{{b.year_sae}}</strong> SAE año</span><span><strong>{{b.year_commercial}}</strong> Comercial año</span></div>
+      <small>Administrar {{b.site_name}} →</small>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="card auditCard">
+  <div class="sectionHead"><div><h3>🔐 Cambios administrativos recientes</h3><p>Registro de creación, edición y eliminación de cuentas.</p></div><span>Auditoría</span></div>
+  <div class="tableWrap"><table><tr><th>Fecha</th><th>Administrador</th><th>Acción</th><th>Detalle</th></tr>
+    {% for a in audits %}<tr><td>{{a.created_at[0:16]|replace('T',' ')}}</td><td>{{a.admin_name or '-'}}</td><td><span class="accountCode">{{a.action}}</span></td><td>{{a.detail or '-'}}</td></tr>{% else %}<tr><td colspan="4" class="emptyCell">No hay cambios registrados.</td></tr>{% endfor %}
+  </table></div>
+</section>
+{% endblock %}
