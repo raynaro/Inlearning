@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="center userEditCenter">
+  <form class="card userEditForm scaleUserForm" method="post">
+    <div class="sectionHead"><div><h2>Editar cuenta {{user.account_code or ''}}</h2><p>Define el rol y el campus Inlearning de esta cuenta.</p></div><span>{{roles.get(user.role,user.role)}}</span></div>
+    <label>Nombre completo<input name="name" value="{{user.name}}" required></label>
+    <label>Correo o usuario<input name="email" value="{{user.email}}" required></label>
+    <label>Código de cuenta<input name="account_code" value="{{user.account_code or ''}}" placeholder="Se genera automáticamente si queda vacío"></label>
+    <label>Rol<select name="role" id="roleSelect" required>{% for key,label in roles.items() %}<option value="{{key}}" {% if user.role==key %}selected{% endif %}>{{label}}</option>{% endfor %}</select></label>
+    <div class="scopeFields singleCampusScope" id="scopeFields">
+      <label>Campus<select name="campus"><option value="">Seleccionar campus</option>{% for campus in campuses %}<option value="{{campus}}" {% if user.campus==campus %}selected{% endif %}>{{site_label(campus)}}</option>{% endfor %}</select></label>
+      <div class="inlearningScopeBox"><small>ORGANIZACIÓN</small><b>Inlearning</b><span id="roleHelpText">Mismas funciones del rol dentro de su campus.</span></div>
+    </div>
+    <label>Nueva contraseña<input name="password" type="password" placeholder="Vacío para conservar la actual"></label>
+    <label>Estado<select name="active"><option value="1" {% if user.active %}selected{% endif %}>Cuenta activa</option><option value="0" {% if not user.active %}selected{% endif %}>Cuenta inactiva</option></select></label>
+    <div class="scopeExplanation">Las cuentas operativas trabajan por campus. El rol Administrador mantiene alcance global. El rol <b>Pantalla TV</b> muestra únicamente turnos, nombre y módulo de atención.</div>
+    <div class="formActions"><button>Guardar cambios</button><a class="btn secondary" href="{{url_for('users')}}">Cancelar</a></div>
+  </form>
+</section>
+<script>
+const r=document.getElementById('roleSelect'),s=document.getElementById('scopeFields'),h=document.getElementById('roleHelpText');
+function toggle(){
+  s.style.display=r.value==='admin'?'none':'grid';
+  if(r.value==='display') h.textContent='Perfil para TV: muestra turnos y módulos del campus seleccionado.';
+  else if(r.value==='sae') h.textContent='Mismas funciones del rol SAE dentro de su campus.';
+  else if(r.value==='commercial') h.textContent='Mismas funciones del rol Comercial dentro de su campus.';
+  else if(r.value==='security') h.textContent='Registro y derivación de visitantes en el campus asignado.';
+  else h.textContent='Mismas funciones del rol dentro de su campus.';
+}
+r.addEventListener('change',toggle);toggle();
+</script>
+{% endblock %}
