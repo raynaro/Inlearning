@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="center userEditCenter">
+  <form class="card userEditForm scaleUserForm" method="post">
+    <div class="sectionHead"><div><h2>Crear usuario</h2><p>Crea una cuenta Inlearning independiente para el campus correspondiente.</p></div><span>Nueva cuenta</span></div>
+    <label>Nombre completo<input name="name" required></label>
+    <label>Correo o usuario<input name="email" required></label>
+    <label>Contraseña inicial<input name="password" type="password" required></label>
+    <label>Código de cuenta<input name="account_code" placeholder="Opcional · se genera automáticamente"></label>
+    <label>Rol
+      <select name="role" id="roleSelect">
+        <option value="security">Seguridad</option>
+        <option value="sae">SAE</option>
+        <option value="commercial">Comercial</option>
+        <option value="display">Pantalla TV</option>
+        <option value="admin">Administrador</option>
+      </select>
+    </label>
+    <div class="scopeFields singleCampusScope" id="scopeFields">
+      <label>Campus<select name="campus"><option value="">Seleccionar campus</option>{% for campus in campuses %}<option value="{{campus}}">{{site_label(campus)}}</option>{% endfor %}</select></label>
+      <div class="inlearningScopeBox"><small>ORGANIZACIÓN</small><b>Inlearning</b><span id="roleHelpText">Acceso operativo únicamente al campus asignado.</span></div>
+    </div>
+    <div class="scopeExplanation">La cuenta <b>Pantalla TV</b> está pensada para una televisión o monitor y solo mostrará turnos, nombre del visitante, módulo y asesor asignado.</div>
+    <div class="formActions"><button>Crear usuario</button><a class="btn secondary" href="{{url_for('users')}}">Cancelar</a></div>
+  </form>
+</section>
+<script>
+const r=document.getElementById('roleSelect'),s=document.getElementById('scopeFields'),h=document.getElementById('roleHelpText');
+function toggle(){
+  s.style.display=r.value==='admin'?'none':'grid';
+  if(r.value==='display') h.textContent='Perfil para TV: muestra turnos y módulos del campus seleccionado.';
+  else if(r.value==='sae') h.textContent='Mismas funciones del rol SAE dentro de su campus.';
+  else if(r.value==='commercial') h.textContent='Mismas funciones del rol Comercial dentro de su campus.';
+  else if(r.value==='security') h.textContent='Registro y derivación de visitantes en el campus asignado.';
+  else h.textContent='Acceso operativo únicamente al campus asignado.';
+}
+r.addEventListener('change',toggle);toggle();
+</script>
+{% endblock %}
