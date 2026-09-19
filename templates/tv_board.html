@@ -1,0 +1,86 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>RIVA TV {{ 'Comercial' if area=='COMERCIAL' else 'SAE' }} · {{site_label(campus)}}</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font-family:Inter,Arial,sans-serif;background:#080d18;color:#fff}.tv{height:100vh;display:grid;grid-template-rows:minmax(0,1fr) 24%;gap:12px;padding:12px}.stage{position:relative;overflow:hidden;border-radius:18px;background:#000;box-shadow:0 12px 40px rgba(0,0,0,.3)}.stage video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000;opacity:1}.stage.fade video.fadeout{opacity:0}.stage.fade video{transition:opacity var(--fade,1s) ease}.noVideo{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:#94a3b8}.noVideo b{display:block;color:#fff;font-size:clamp(24px,3vw,44px);margin-bottom:8px}.campus{position:absolute;top:14px;right:14px;padding:8px 12px;border-radius:999px;background:rgba(8,13,24,.7);backdrop-filter:blur(8px);font-size:13px;font-weight:800}.modules{display:grid;grid-template-columns:repeat(var(--cols,3),minmax(0,1fr));gap:12px;min-height:0}.module{background:linear-gradient(180deg,#fff,#f8fafc);color:#0f172a;border-radius:18px;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:12px;box-shadow:0 8px 30px rgba(0,0,0,.18)}.module h2{margin:0 0 8px;font-size:clamp(28px,3vw,52px);text-transform:uppercase;letter-spacing:.08em;color:#475569;font-weight:900}.client{font-size:clamp(22px,2.7vw,46px);font-weight:900;line-height:1.05;max-width:100%;overflow:hidden;text-overflow:ellipsis}.empty{color:#94a3b8;font-weight:700}.pulse{animation:pulse .7s ease}@keyframes pulse{50%{transform:scale(1.035);box-shadow:0 0 0 4px rgba(59,130,246,.22),0 10px 35px rgba(0,0,0,.2)}}
+
+.tv-hover-zone{position:fixed;top:0;left:0;width:100%;height:55px;z-index:49}
+.tv-toolbar{position:fixed;top:0;left:50%;transform:translate(-50%,-120%);opacity:0;pointer-events:none;z-index:50;background:rgba(8,13,24,.90);backdrop-filter:blur(12px);padding:10px 14px;border-radius:0 0 14px 14px;display:flex;gap:8px;align-items:center;transition:.3s ease}
+.tv-hover-zone:hover + .tv-toolbar,.tv-toolbar:hover,.tv-toolbar.active{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+.tv-toolbar button,.tv-toolbar select{background:#fff;color:#0f172a;border:0;border-radius:9px;padding:8px 12px;font-weight:800;cursor:pointer}
+.tv-toolbar .label{font-size:12px;color:#cbd5e1}
+</style></head><body>
+<div class="tv-hover-zone"></div><div class="tv-toolbar">
+<span class="label">RIVA TV · {{ 'Comercial' if area=='COMERCIAL' else 'SAE' }}</span>
+{% if admin_preview %}
+<select id="areaSelector" title="Cambiar área">
+<option value="SAE" {% if area=='SAE' %}selected{% endif %}>TV SAE</option>
+<option value="COMERCIAL" {% if area=='COMERCIAL' %}selected{% endif %}>TV Comercial</option>
+</select>
+<select id="campusSelector" title="Cambiar campus">
+<option value="SJM" {% if campus=='SJM' %}selected{% endif %}>Lima Sur</option>
+<option value="ATE" {% if campus=='ATE' %}selected{% endif %}>Lima Este</option>
+<option value="SJL" {% if campus=='SJL' %}selected{% endif %}>Lima Norte</option>
+</select>
+{% endif %}
+<button type="button" id="soundBtn">🔊 Sonido</button>
+<button type="button" id="fullBtn">⛶ Pantalla completa</button>
+</div>
+<div class="tv"><section id="stage" class="stage {{tv_config.transition_type}}" style="--fade:{{tv_config.transition_seconds}}s"><video id="player" playsinline {% if tv_config.muted %}muted{% endif %}></video><div id="noVideo" class="noVideo" {% if tv_config.videos %}style="display:none"{% endif %}><div><b>RIVA TV</b>No hay videos seleccionados para este campus.</div></div><div class="campus">{{site_label(campus)}} · {{ 'Comercial' if area=='COMERCIAL' else 'SAE' }}</div></section><section class="modules" id="modules" style="--cols:{{module_count}}">
+{% for n in range(1, module_count + 1) %}<article class="module" id="module{{n}}"><h2>Módulo {{n}}</h2><div class="client empty">Disponible</div></article>
+{% endfor %}</section></div>
+<script>
+const playlist={{tv_config.videos|tojson}}, transition={{tv_config.transition_seconds|tojson}}, transitionType={{tv_config.transition_type|tojson}}, apiUrl={{url_for('tv_board_api',campus=campus,area=area)|tojson}};let ix=0;const player=document.getElementById('player');
+function playIndex(){if(!playlist.length)return;player.src=playlist[ix].url;player.load();const p=player.play();if(p)p.catch(()=>{player.muted=true;player.play().catch(()=>{})})}
+player.addEventListener('ended',()=>{if(!playlist.length)return;if(transitionType==='fade'&&transition>0){player.classList.add('fadeout');setTimeout(()=>{ix=(ix+1)%playlist.length;player.classList.remove('fadeout');playIndex()},transition*1000)}else{ix=(ix+1)%playlist.length;playIndex()}});player.addEventListener('error',()=>{if(playlist.length>1){ix=(ix+1)%playlist.length;setTimeout(playIndex,500)}});if(playlist.length)playIndex();
+function normModule(v){const m=String(v||'').match(/(\d+)/);return m?Number(m[1]):0}
+let prev={},shown={{module_count|tojson}};const defaultModules={{module_count|tojson}};
+function ensureModules(n){if(n===shown)return;const box=document.getElementById('modules');box.style.setProperty('--cols',n);box.innerHTML='';for(let i=1;i<=n;i++){const a=document.createElement('article');a.className='module';a.id='module'+i;a.innerHTML='<h2>Módulo '+i+'</h2><div class="client empty">Disponible</div>';box.appendChild(a)}shown=n;prev={}}
+function render(data){ensureModules(Number(data.total_advisors)||defaultModules);const by={};(data.active_calls||[]).forEach(x=>{const n=normModule(x.service_module);if(n>=1&&n<=shown&&!by[n])by[n]=x});for(let n=1;n<=shown;n++){const card=document.getElementById('module'+n),el=card.querySelector('.client'),item=by[n];const name=item?item.full_name:'Disponible';el.textContent=name;el.classList.toggle('empty',!item);if(prev[n]!==name){card.classList.remove('pulse');void card.offsetWidth;card.classList.add('pulse')}prev[n]=name}}
+async function refresh(){try{const r=await fetch(apiUrl,{cache:'no-store'});if(r.ok)render(await r.json())}catch(e){}}refresh();setInterval(refresh,3000);
+
+const soundBtn=document.getElementById('soundBtn');
+if(soundBtn){
+ soundBtn.addEventListener('click',()=>{
+   player.muted=!player.muted;
+   soundBtn.textContent=player.muted?'🔇 Silencio':'🔊 Sonido';
+   player.play().catch(()=>{});
+ });
+}
+const fullBtn=document.getElementById('fullBtn');
+if(fullBtn){
+ fullBtn.addEventListener('click',()=>{
+   if(!document.fullscreenElement){document.documentElement.requestFullscreen?.();}
+   else{document.exitFullscreen?.();}
+ });
+}
+const areaSelector=document.getElementById('areaSelector');
+if(areaSelector){
+ areaSelector.addEventListener('change',()=>{
+   const url=new URL(window.location.href);
+   url.searchParams.set('area',areaSelector.value);
+   window.location.href=url.toString();
+ });
+}
+const campusSelector=document.getElementById('campusSelector');
+if(campusSelector){
+ campusSelector.addEventListener('change',()=>{
+   const url=new URL(window.location.href);
+   url.searchParams.set('campus',campusSelector.value);
+   window.location.href=url.toString();
+ });
+}
+</script>
+<script>
+(function(){
+ const zone=document.querySelector('.tv-hover-zone');
+ const bar=document.querySelector('.tv-toolbar');
+ let timer;
+ function show(){clearTimeout(timer);bar.classList.add('active');}
+ function hide(){timer=setTimeout(()=>bar.classList.remove('active'),3000);}
+ zone.addEventListener('mouseenter',show);
+ zone.addEventListener('mouseleave',hide);
+ bar.addEventListener('mouseenter',show);
+ bar.addEventListener('mouseleave',hide);
+ document.addEventListener('mousemove',e=>{if(e.clientY<70) show(); else hide();});
+})();
+</script>
+</body></html>

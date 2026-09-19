@@ -1,0 +1,128 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card visitorsPageCard">
+  <div class="sectionHead visitorsHead">
+    <div>
+      <div class="sectionBrand"><strong>RIVA</strong><span>Registro de Visitas y Asistencias</span></div>
+      <h2>Visitas {{area_actual or 'de todas las áreas'}}</h2>
+      <p>{% if session.get('role')=='admin' %}Control por campus y marca de visita.{% else %}Se muestran visitas de <b>Inlearning</b> en el campus <b>{{site_label(campus)}}</b>.{% endif %}</p>
+    </div>
+    <div class="visitorsHeadActions">
+      {% if session.get('role') in ['sae','commercial'] %}
+      <div class="areaUserIdentity">
+        <span class="identityRole">{{'SAE' if session.get('role')=='sae' else 'COMERCIAL'}}</span>
+        <b>{{session.get('name')}}</b>
+        <small>Inlearning · Campus {{site_label(campus)}}{% if session.get('role')=='sae' and sae_module %} · {{sae_module}}{% endif %}</small>
+      </div>
+      {% endif %}
+
+      {% if session.get('role')=='sae' %}
+      <form method="post" action="{{url_for('sae_availability')}}" class="saeAvailabilityForm">
+        <input type="hidden" name="active" value="{{0 if sae_service_active else 1}}">
+        <button type="submit" class="saeAvailabilityBtn {{'isActive' if sae_service_active else 'isInactive'}}" {% if sae_busy and sae_service_active %}title="Finaliza la atención actual antes de ponerte inactivo"{% endif %}>
+          <span class="presenceDot"></span>
+          <span><b>{{'Activo' if sae_service_active else 'Inactivo'}}</b><small>{{'Disponible para atender' if sae_service_active else 'Fuera de atención'}}</small></span>
+        </button>
+      </form>
+      {% endif %}
+
+      {% if session.get('role')=='commercial' %}
+      <form method="post" action="{{url_for('commercial_availability')}}" class="saeAvailabilityForm">
+        <input type="hidden" name="active" value="{{0 if not sae_service_active else 0}}">
+        <button type="submit" class="saeAvailabilityBtn {{'isActive' if sae_service_active else 'isInactive'}}">
+          <span class="presenceDot"></span>
+          <span><b>{{'Activo' if sae_service_active else 'Inactivo'}}</b><small>{{'Disponible para atender' if sae_service_active else 'Fuera de atención'}}</small></span>
+        </button>
+      </form>
+      {% endif %}
+
+      {% if session.get('role')=='admin' %}
+      <a class="btn secondary" href="{{url_for('tv_board', campus=campus or 'SJM')}}">🖥 Ver pantalla TV</a>
+      {% endif %}
+      <a class="btn" href="{{url_for('export_visits_excel',institute=institute,campus=campus,area=area_actual,days=30)}}">📊 Exportar Excel</a>
+    </div>
+  </div>
+
+  {% if session.get('role')=='sae' %}
+  <div class="saePresenceNotice {{'presenceAvailable' if sae_service_active else 'presenceUnavailable'}}">
+    <div><span class="presenceDot"></span><b>{{sae_module or 'Módulo SAE'}}</b></div>
+    <p>{% if sae_service_active %}{% if sae_busy %}Tienes una atención en curso. Finalízala antes de llamar al siguiente turno.{% else %}Tu módulo está disponible y puede tomar el siguiente turno.{% endif %}{% else %}Tu módulo está fuera de servicio. Actívalo para poder cambiar una visita a “En atención”.{% endif %}</p>
+  </div>
+  {% endif %}
+
+  <form class="visitFilters scaleVisitFilters professionalStatusFilters" method="get">
+    {% if session.get('role')=='admin' %}
+      <select name="institute"><option value="">Todas las marcas de visita</option>{% for inst in institutes %}<option value="{{inst}}" {% if institute==inst %}selected{% endif %}>{{inst}}</option>{% endfor %}</select>
+      <select name="campus"><option value="">Todos los campus</option>{% for sede in campuses %}<option value="{{sede}}" {% if campus==sede %}selected{% endif %}>{{site_label(sede)}}</option>{% endfor %}</select>
+      <select name="area"><option value="">Todas las áreas</option><option value="SAE" {% if area_actual=='SAE' %}selected{% endif %}>SAE</option><option value="COMERCIAL" {% if area_actual=='COMERCIAL' %}selected{% endif %}>Comercial</option></select>
+    {% endif %}
+    <div class="statusFilterGroup">
+      <span class="statusFilterLabel">Mostrar estados</span>
+      <label class="statusFilterPill newFilter"><input type="checkbox" name="status" value="NUEVA" {% if 'NUEVA' in status_filter %}checked{% endif %}><span>Visitas nuevas</span></label>
+      <label class="statusFilterPill attentionFilter"><input type="checkbox" name="status" value="NO ATENDIDO" {% if 'NO ATENDIDO' in status_filter %}checked{% endif %}><span>En atención</span></label>
+      <label class="statusFilterPill attendedFilter"><input type="checkbox" name="status" value="ATENDIDO" {% if 'ATENDIDO' in status_filter %}checked{% endif %}><span>Atendidas</span></label>
+    </div>
+    <button>Aplicar filtros</button><a class="btn secondary" href="{{url_for('visitors')}}">Limpiar</a>
+  </form>
+
+  <div class="filterHint">
+    Puedes combinar los filtros: por ejemplo, marcar <b>Visitas nuevas + En atención</b>, o <b>En atención + Atendidas</b>. Si no marcas ninguno, se muestran todas.
+  </div>
+
+  <div class="scopeBanner">
+    <span>🏷️ {{institute or 'Inlearning'}}</span>
+    <span>📍 {{site_label(campus) if campus else 'Todos los campus'}}</span>
+    <span>🎯 {{area_actual or 'SAE + Comercial'}}</span>
+    <span>📋 {{visitors|length}} registros</span>
+  </div>
+
+  <div class="tableWrap"><table class="visitsTable">
+    <tr>
+      <th>Orden</th><th>Turno</th><th>Fecha</th><th>Marca</th><th>Campus</th><th>Visitante</th><th>DNI</th><th>Teléfono</th>
+      {% if session.get('role')=='admin' %}<th>Área</th>{% endif %}
+      <th>Motivo</th>
+      {% if session.get('role')=='admin' %}<th>Registró</th>{% endif %}
+      <th>Módulo / Atención</th><th class="statusHeaderYellow">Estado</th>
+    </tr>
+    {% for v in visitors %}
+    <tr class="visitRow {{ visit_row_css(v) }}">
+      <td><span class="orderBadge">{{loop.index}}</span></td>
+      <td><span class="turnBadge">T-{{ '%03d'|format(v.turn_number or v.id) }}</span></td>
+      <td class="visitDate"><strong>{{v.created_at[0:10]}}</strong><small>{{v.created_at[11:16]}}</small></td>
+      <td><span class="instituteBadge institute{{v.institute|lower}}">{{v.institute}}</span></td>
+      <td><b>{{site_label(v.campus)}}</b></td>
+      <td><b>{{v.full_name}}</b></td><td>{{v.dni}}</td><td>{{v.phone or '-'}}</td>
+      {% if session.get('role')=='admin' %}<td><span class="badge area">{{v.destination_area}}</span></td>{% endif %}
+      <td>{{v.reason or '-'}}</td>
+      {% if session.get('role')=='admin' %}<td>{{v.registered_by or '-'}}</td>{% endif %}
+      <td><div class="moduleStack"><b>{{v.service_module or '-'}}</b><small>{{v.current_sae_name or v.attended_by or v.status_updated_by or '-'}}</small></div></td>
+      <td class="statusCellYellow">
+        <form method="post" action="{{url_for('update_visit_status',visit_id=v.id)}}" class="statusForm simpleStatusForm">
+          <input type="hidden" name="return_status" value="{{status_filter|join(',')}}">
+          <select name="estado" class="estadoSelect {% if v.attended %}estadoOk{% elif v.flag_in_attention %}estadoPendiente{% else %}estadoNueva{% endif %}" onchange="this.form.submit()">
+            <option value="NUEVA" {% if not v.attended and v.flag_new %}selected{% endif %}>Visita nueva</option>
+            <option value="NO ATENDIDO" {% if not v.attended and v.flag_in_attention %}selected{% endif %}>En atención</option>
+            <option value="ATENDIDO" {% if v.attended %}selected{% endif %}>Atendido</option>
+          </select>
+        </form>
+      </td>
+    </tr>
+    {% else %}<tr><td colspan="{{ 13 if session.get('role')=='admin' else 11 }}" class="emptyState">No hay visitas para este filtro.</td></tr>{% endfor %}
+  </table></div>
+</section>
+
+{% if sonido_area %}
+<aside class="visitSoundPanel" id="visitSoundPanel"><button type="button" id="soundToggle" aria-label="Activar o desactivar campana"><span class="soundBell">🔔</span><span><b>Campana</b><small id="soundState">Activa</small></span></button></aside>
+<script>
+(function(){
+  let last={{ultimo_id|int}},ctx=null,enabled=localStorage.getItem('rivaBell')!=='off',unlocked=false;
+  const btn=document.getElementById('soundToggle'),state=document.getElementById('soundState'),panel=document.getElementById('visitSoundPanel');
+  function paint(){state.textContent=enabled?'Activa':'Silenciada';panel.classList.toggle('soundOff',!enabled)}
+  function unlock(){try{ctx=ctx||new(window.AudioContext||window.webkitAudioContext)();if(ctx.state==='suspended')ctx.resume();unlocked=true}catch(e){}}
+  function bell(){if(!enabled||!unlocked)return;try{unlock();const now=ctx.currentTime;[880,1175,1568].forEach((freq,i)=>{const o=ctx.createOscillator(),g=ctx.createGain();o.type='sine';o.frequency.value=freq;o.connect(g);g.connect(ctx.destination);g.gain.setValueAtTime(.0001,now+i*.12);g.gain.exponentialRampToValueAtTime(.12,now+i*.12+.02);g.gain.exponentialRampToValueAtTime(.0001,now+i*.12+.24);o.start(now+i*.12);o.stop(now+i*.12+.26)})}catch(e){}}
+  document.addEventListener('pointerdown',unlock,{once:true});btn.onclick=()=>{enabled=!enabled;localStorage.setItem('rivaBell',enabled?'on':'off');unlock();paint()};paint();
+  setInterval(async()=>{try{const r=await fetch('{{url_for("visitas_estado")}}?since='+last),d=await r.json();if(d.ultimo>last){if(d.nuevos>0)bell();last=d.ultimo;setTimeout(()=>location.reload(),700)}}catch(e){}},5000);
+})();
+</script>
+{% endif %}
+{% endblock %}

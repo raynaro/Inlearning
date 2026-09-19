@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block content %}
+<style>
+.tvAdmin{max-width:1180px;margin:auto}.tvHead{display:flex;justify-content:space-between;align-items:end;gap:20px;margin-bottom:22px}.tvGrid{display:grid;grid-template-columns:1.15fr .85fr;gap:20px}.tvCard{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:22px;box-shadow:0 12px 30px rgba(15,23,42,.06)}.tvCard h2{margin:0 0 6px}.muted{color:#64748b}.campusTabs{display:flex;gap:8px;flex-wrap:wrap}.campusTabs a{padding:9px 13px;border-radius:10px;text-decoration:none;background:#eef2ff;color:#334155;font-weight:800}.campusTabs a.on{background:#172033;color:#fff}.uploadBox{border:2px dashed #cbd5e1;border-radius:14px;padding:18px;margin:16px 0}.uploadBox input{width:100%}.btnTv{border:0;border-radius:10px;padding:11px 15px;background:#172033;color:#fff;font-weight:800;cursor:pointer}.btnDanger{background:#fff1f2;color:#be123c;border:1px solid #fecdd3;padding:7px 10px;border-radius:9px;cursor:pointer}.videoRow{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid #eef2f7}.videoRow:last-child{border:0}.videoRow b{display:block;word-break:break-word}.videoRow small{color:#64748b}.settings{display:grid;gap:14px}.settings label{font-weight:800}.settings select{width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:10px}.modeGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.modeCard{border:2px solid #e2e8f0;border-radius:14px;padding:14px;cursor:pointer;display:flex;gap:10px;align-items:flex-start}.modeCard:has(input:checked){border-color:#172033;background:#f8fafc}.modeCard b{display:block;margin-bottom:4px}.modeCard small{color:#64748b}.singlePick{padding:14px;border-radius:12px;background:#f8fafc;border:1px solid #e2e8f0}.preview{aspect-ratio:16/9;width:100%;border:0;border-radius:14px;background:#0b1020}.hint{font-size:13px;color:#64748b;margin-top:8px}@media(max-width:900px){.tvGrid{grid-template-columns:1fr}.tvHead{align-items:flex-start;flex-direction:column}.modeGrid{grid-template-columns:1fr}}
+.tv-hover-zone-admin{position:fixed;top:0;left:0;width:100%;height:55px;z-index:20}.admin-toolbar{position:fixed;top:0;left:50%;transform:translate(-50%,-120%);opacity:0;transition:.3s;z-index:30;background:#172033;color:white;padding:10px 15px;border-radius:0 0 14px 14px;font-weight:800}.tv-hover-zone-admin:hover + .admin-toolbar,.admin-toolbar:hover,.admin-toolbar.active{opacity:1;transform:translate(-50%,0)}
+</style>
+<div class="tv-hover-zone-admin"></div><div class="admin-toolbar">📺 Administración TV · {{site_label(campus)}}</div>
+<div class="tvAdmin">
+  <div class="tvHead"><div><h1>📺 Administración TV</h1><p class="muted">Importa MP4, configura el contenido de cada campus y previsualiza exactamente cómo se verá.</p></div><div class="campusTabs">{% for code in campuses %}<a class="{% if campus==code %}on{% endif %}" href="{{url_for('tv_admin',campus=code)}}">{{site_label(code)}}</a>{% endfor %}</div></div>
+  <div class="tvGrid">
+    <section class="tvCard">
+      <h2>Biblioteca de videos</h2><p class="muted">Los videos son compartidos en la biblioteca, pero cada campus tiene su propia selección y modo de reproducción.</p>
+      <form class="uploadBox" method="post" action="{{url_for('tv_admin_upload')}}" enctype="multipart/form-data"><input type="hidden" name="campus" value="{{campus}}"><input type="file" name="videos" accept="video/mp4,.mp4" multiple required><div style="margin-top:12px"><button class="btnTv" type="submit">+ Importar videos MP4</button></div></form>
+      <form method="post" action="{{url_for('tv_admin_configure')}}" id="configForm"><input type="hidden" name="campus" value="{{campus}}">
+        {% if videos %}{% for v in videos %}<div class="videoRow"><input type="checkbox" name="video_ids" value="{{v.id}}" {% if v.id in selected_ids %}checked{% endif %}><div><b>{{v.original_name}}</b><small>{% if v.id in selected_ids %}Seleccionado para {{site_label(campus)}}{% else %}Disponible en la biblioteca{% endif %}</small></div><button class="btnDanger" type="submit" form="delete-{{v.id}}">Eliminar</button></div>{% endfor %}{% else %}<p class="muted">Todavía no hay videos. Importa uno o varios archivos MP4.</p>{% endif %}
+        <div class="settings" style="margin-top:18px">
+          <div><label>Modo de reproducción</label><div class="modeGrid" style="margin-top:8px">
+            <label class="modeCard"><input type="radio" name="playback_mode" value="single" {% if settings and settings.playback_mode=='single' %}checked{% endif %}><span><b>Repetir un video</b><small>El mismo MP4 se reproduce continuamente.</small></span></label>
+            <label class="modeCard"><input type="radio" name="playback_mode" value="random" {% if not settings or settings.playback_mode!='single' %}checked{% endif %}><span><b>Varios aleatoriamente</b><small>Mezcla los videos seleccionados y vuelve a mezclar al terminar.</small></span></label>
+          </div></div>
+          <div class="singlePick" id="singlePick"><label>Video que se repetirá<select name="single_video_id"><option value="">Selecciona un video…</option>{% for v in videos %}<option value="{{v.id}}" {% if settings and settings.single_video_id==v.id %}selected{% endif %}>{{v.original_name}}</option>{% endfor %}</select></label></div>
+          <label>Transición visual<select name="transition_type"><option value="fade" {% if not settings or settings.transition_type=='fade' %}selected{% endif %}>Suave (fade)</option><option value="cut" {% if settings and settings.transition_type=='cut' %}selected{% endif %}>Corte directo</option></select></label>
+          <label style="display:flex;gap:9px;align-items:center"><input type="checkbox" name="muted" value="1" {% if settings and settings.muted %}checked{% endif %}> Reproducir videos sin sonido</label>
+          <button class="btnTv" type="submit">Guardar configuración</button>
+        </div>
+      </form>
+      {% for v in videos %}<form id="delete-{{v.id}}" method="post" action="{{url_for('tv_admin_delete_video',video_id=v.id)}}" onsubmit="return confirm('¿Eliminar este video de la biblioteca?')"><input type="hidden" name="campus" value="{{campus}}"></form>{% endfor %}
+    </section>
+    <section class="tvCard"><h2>Previsualización</h2><p class="muted">Vista de <b>{{site_label(campus)}}</b>. Guarda los cambios para actualizarla.</p><iframe class="preview" src="{{url_for('tv_board',campus=campus,preview=1)}}"></iframe><div style="display:flex;gap:10px;margin-top:14px"><a class="btnTv" style="text-decoration:none" target="_blank" href="{{url_for('tv_board',campus=campus,area='SAE')}}">Probar TV SAE ↗</a><a class="btnTv" style="text-decoration:none" target="_blank" href="{{url_for('tv_board',campus=campus,area='COMERCIAL')}}">Probar TV Comercial ↗</a></div><p class="hint">La TV reproduce un solo video en bucle o varios MP4 en orden aleatorio. Debajo se mantienen únicamente los módulos del área con el cliente asignado: 3 módulos en la TV SAE y 4 módulos en la TV Comercial.</p></section>
+  </div>
+</div>
+<script>
+function updateMode(){const single=document.querySelector('input[name="playback_mode"][value="single"]').checked;document.getElementById('singlePick').style.display=single?'block':'none'}document.querySelectorAll('input[name="playback_mode"]').forEach(x=>x.addEventListener('change',updateMode));updateMode();
+</script>
+<script>
+(function(){
+const z=document.querySelector('.tv-hover-zone-admin'),b=document.querySelector('.admin-toolbar');let t;
+function s(){clearTimeout(t);b.classList.add('active')}
+function h(){t=setTimeout(()=>b.classList.remove('active'),3000)}
+z.onmouseenter=s;z.onmouseleave=h;b.onmouseenter=s;b.onmouseleave=h;
+})();
+</script>
+{% endblock %}
